@@ -89,6 +89,12 @@ curl -s http://YOUR_IP:8000/v1/chat/completions \
   }' | jq .
 ```
 
+List available models:
+
+```bash
+curl -s http://YOUR_IP:8000/v1/models | jq '.data[].id'
+```
+
 The router loads models on demand. With `--models-max 1`, requesting a different model unloads the current one first.
 
 ## Architecture

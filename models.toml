@@ -131,6 +131,27 @@ name = "qwen3-coder-next:80b"
 ctx_size = 32768
 extra = { cpu_moe = true }
 
+# ── Gemma 4 ──────────────────────────────────────────────────────
+
+[models.gemma-4-31b]
+repo = "unsloth/gemma-4-31B-it-GGUF"
+file = "gemma-4-31B-it-Q4_K_M.gguf"
+
+[models.gemma-4-31b.profiles.default]
+name = "gemma-4:31b"
+ctx_size = 32768
+gpu_layers = 999
+
+[models.gemma-4-26b-a4b]
+repo = "unsloth/gemma-4-26B-A4B-it-GGUF"
+file = "gemma-4-26B-A4B-it-Q4_K_M.gguf"
+
+[models.gemma-4-26b-a4b.profiles.default]
+name = "gemma-4:26b-a4b"
+ctx_size = 32768
+gpu_layers = 999
+extra = { cpu_moe = true }
+
 # ── Qwen 3.5 ────────────────────────────────────────────────────
 
 [models.qwen3_5-35b-a3b]
