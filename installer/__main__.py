@@ -49,7 +49,7 @@ def main() -> int:
     hw = detect_hardware()
 
     print(f"\n{'=' * 60}")
-    print("  O6-inference installer")
+    print("  inference installer")
     print(f"{'=' * 60}")
     ref = config.llama_cpp_ref
     ref_label = f"{ref} (pinned)" if ref != "latest" else "latest"

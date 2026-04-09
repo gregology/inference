@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# O6-inference installer bootstrap
+# inference installer bootstrap
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/gregology/O6-inference/refs/heads/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/gregology/inference/refs/heads/main/install.sh | sudo bash
 #   curl -fsSL ... | sudo bash -s -- --prune --port 9000
 #
 set -euo pipefail
 
-REPO_URL="https://github.com/gregology/O6-inference.git"
-INSTALL_DIR="/srv/llm/src/O6-inference"
+REPO_URL="https://github.com/gregology/inference.git"
+INSTALL_DIR="/srv/llm/src/inference"
 
 # ── Ensure we're root ────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then

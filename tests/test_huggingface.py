@@ -27,7 +27,7 @@ def _load():
 def _get_repo_files(repo: str) -> list[str]:
     """Fetch the file listing for a HF repo. Returns list of relative paths."""
     url = f"{HF_API}/{repo}"
-    req = urllib.request.Request(url, headers={"User-Agent": "O6-inference-tests"})
+    req = urllib.request.Request(url, headers={"User-Agent": "inference-tests"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         data = json.loads(resp.read())
     return [s["rfilename"] for s in data.get("siblings", [])]

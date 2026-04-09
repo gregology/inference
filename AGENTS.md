@@ -1,4 +1,4 @@
-# O6-inference
+# inference
 
 Automated installer and model manager for running local LLM inference on a Radxa Orion O6 (or any Debian Bookworm machine) using llama.cpp with Vulkan GPU offload.
 

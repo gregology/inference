@@ -1,11 +1,11 @@
-# O6-inference
+# inference
 
 Turn a [Radxa Orion O6](https://radxa.com/products/orion/o6/) (or any Debian Bookworm box) into a local LLM inference server — one command, many models.
 
 ## Quick start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gregology/O6-inference/refs/heads/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gregology/inference/refs/heads/main/install.sh | sudo bash
 ```
 
 This will:

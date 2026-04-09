@@ -1,4 +1,4 @@
-# O6-inference model manifest
+# inference model manifest
 #
 # This file defines which models to download and how to expose them
 # via the llama-server router. Run the installer again after editing
