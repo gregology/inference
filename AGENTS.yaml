@@ -73,33 +73,44 @@ decisions:
       follows the convention of system services not running as root.
     match: ["installer/steps/user.py", "installer/steps/systemd.py"]
 
-  - decision: "Pin llama.cpp to 914dde72b (b8005)"
+  - decision: "Pin llama.cpp to 914dde72b on Mali G720 only"
     rationale: |
       Builds after 914dde72b introduced a Vulkan descriptor set assertion
       failure on the Mali G720 Immortalis GPU (ggml-vulkan.cpp:6522). The
-      regression is tracked in ggml-org/llama.cpp#21483. Every build between
-      b8005 and HEAD triggers the bug when offloading layers to Vulkan on
-      this GPU. The pin is configured via [build] llama_cpp_ref in models.toml.
+      regression is tracked in ggml-org/llama.cpp#21483. The pin is applied
+      conditionally in backend.py when the detected GPU is Mali/Immortalis.
+      On other hardware (NVIDIA, AMD, CPU), models.toml llama_cpp_ref is
+      used as-is (defaults to "latest").
     revisit_when: "ggml-org/llama.cpp#21483 is resolved"
-    match: ["models.toml", "installer/steps/build_llama.py"]
+    match: ["installer/backend.py", "installer/steps/build_llama.py"]
 
-  - decision: "Gemma 4 models excluded"
+  - decision: "Gemma 4 models excluded from models.toml"
     rationale: |
       The gemma4 architecture was added to llama.cpp at b8637 (PR #21309,
       Apr 2 2026). Every build that supports gemma4 also has the Mali Vulkan
-      regression (ggml-org/llama.cpp#21483). There is no build that supports
-      both gemma4 and Vulkan on the O6's Mali G720. Gemma 4 models were
-      removed from models.toml rather than kept as commented-out blocks.
-      When the Vulkan fix lands, bump llama_cpp_ref and re-add Gemma 4:
+      regression (ggml-org/llama.cpp#21483). On non-Mali hardware these
+      models work fine with latest llama.cpp. They were removed from
+      models.toml because it ships with the O6 as the primary target.
+      When the Vulkan fix lands, re-add Gemma 4:
         gemma-4-31b: unsloth/gemma-4-31B-it-GGUF (gemma-4-31B-it-Q4_K_M.gguf)
         gemma-4-26b-a4b: unsloth/gemma-4-26B-A4B-it-GGUF (gemma-4-26B-A4B-it-UD-Q4_K_M.gguf)
     revisit_when: "ggml-org/llama.cpp#21483 is resolved"
     match: ["models.toml"]
 
-  - decision: "Hardware detection is passive, not prescriptive"
+  - decision: "Separate detection from policy (hardware.py vs backend.py)"
     rationale: |
       hardware.py detects what's available (GPU, NPU, Coral, PCIe) but doesn't
-      force configuration changes. Steps query the Hardware dataclass and adapt.
-      This keeps the door open for future extensions (NPU offload, Coral for
-      edge models, discrete GPU) without coupling detection to action.
-    match: ["installer/hardware.py"]
+      decide what to use. backend.py makes the policy decision: which backend
+      to select, which packages to install, which cmake flags to pass. This
+      separation keeps detection passive and makes it easy to add new backends
+      without modifying hardware detection or step code.
+    match: ["installer/hardware.py", "installer/backend.py"]
+
+  - decision: "Backend-aware step system"
+    rationale: |
+      Every Step receives a BackendConfig via self.backend. GPU-specific
+      knowledge (packages, cmake flags, build dir, default device, steps to
+      skip) is centralized in backend.py. Steps consume it generically. Adding
+      a new backend (e.g., ROCm) requires only a new entry in backend.py —
+      no step code changes needed.
+    match: ["installer/backend.py", "installer/step.py", "installer/runner.py"]

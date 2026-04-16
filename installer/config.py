@@ -64,7 +64,7 @@ class Defaults:
     parallel: int = 1
     cache_type_k: str = "q4_0"
     cache_type_v: str = "q4_0"
-    device: str = "Vulkan0"
+    device: str | None = None
     gpu_layers: str = "auto"
     ctx_size: int = 8192
     no_warmup: bool = True
@@ -102,7 +102,7 @@ def load_config(args) -> Config:
         parallel=defaults_raw.get("parallel", 1),
         cache_type_k=defaults_raw.get("cache_type_k", "q4_0"),
         cache_type_v=defaults_raw.get("cache_type_v", "q4_0"),
-        device=defaults_raw.get("device", "Vulkan0"),
+        device=defaults_raw.get("device"),
         gpu_layers=defaults_raw.get("gpu_layers", "auto"),
         ctx_size=defaults_raw.get("ctx_size", 8192),
         no_warmup=defaults_raw.get("no_warmup", True),

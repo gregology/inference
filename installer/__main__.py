@@ -3,6 +3,7 @@
 import argparse
 import sys
 
+from .backend import BackendType, detect_backend, get_backend_config
 from .config import load_config
 from .hardware import detect_hardware
 from .runner import run_steps
@@ -11,7 +12,7 @@ from .steps import ALL_STEPS
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Install and maintain the O6 inference stack.",
+        description="Install and maintain the inference stack.",
     )
     parser.add_argument(
         "--prune",
@@ -43,10 +44,31 @@ def main() -> int:
         default=8000,
         help="Listen port for llama-server (default: 8000)",
     )
+    parser.add_argument(
+        "--backend",
+        choices=[b.value for b in BackendType],
+        default=None,
+        help="GPU backend (default: auto-detect). Options: vulkan, cuda, cpu",
+    )
     args = parser.parse_args()
 
     config = load_config(args)
     hw = detect_hardware()
+
+    if args.backend:
+        backend_type = BackendType(args.backend)
+    else:
+        backend_type = detect_backend(hw)
+
+    backend = get_backend_config(backend_type, hw)
+
+    # Resolve default device: models.toml wins if set, otherwise use backend default.
+    if config.defaults.device is None:
+        config.defaults.device = backend.default_device
+
+    # Apply backend-specific llama.cpp ref override.
+    if backend.llama_cpp_ref_override:
+        config.llama_cpp_ref = backend.llama_cpp_ref_override
 
     print(f"\n{'=' * 60}")
     print("  inference installer")
@@ -55,13 +77,14 @@ def main() -> int:
     ref_label = f"{ref} (pinned)" if ref != "latest" else "latest"
     print(f"  Models file : {config.models_toml}")
     print(f"  Models count: {len(config.models)}")
+    print(f"  Backend     : {backend.type.value}")
     print(f"  llama.cpp   : {ref_label}")
     print(f"  GPU device  : {hw.gpu_device or 'none detected'}")
     print(f"  Dry run     : {config.dry_run}")
     print(f"  Prune       : {config.prune}")
     print(f"{'=' * 60}\n")
 
-    return run_steps(ALL_STEPS, config, hw)
+    return run_steps(ALL_STEPS, config, hw, backend)
 
 
 sys.exit(main())

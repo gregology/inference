@@ -15,17 +15,18 @@
 # /srv/llm/models/. If omitted, the TOML key (id) is used.
 
 [build]
-# Pin llama.cpp to a specific commit. Set to "latest" to track HEAD.
-# b8005 (914dde72b) is the last known build without the Mali Vulkan
-# descriptor set regression (ggml-vulkan.cpp assertion failure).
-llama_cpp_ref = "914dde72b"
+# Set to "latest" to track HEAD, or pin to a specific commit hash.
+# On Mali G720 hardware the installer automatically pins to 914dde72b
+# to avoid the Vulkan descriptor set regression (ggml-org/llama.cpp#21483).
+llama_cpp_ref = "latest"
 
 [defaults]
 mmap = true
 parallel = 1
 cache_type_k = "q4_0"
 cache_type_v = "q4_0"
-device = "Vulkan0"
+# device is set automatically by the backend (Vulkan0, CUDA0, or none).
+# Uncomment to override: device = "Vulkan0"
 gpu_layers = "auto"
 ctx_size = 8192
 no_warmup = true

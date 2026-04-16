@@ -15,6 +15,8 @@ class Hardware:
     has_npu: bool = False
     has_coral: bool = False
     has_pcie_gpu: bool = False
+    pcie_gpu_vendor: str | None = None  # "nvidia", "amd", or None
+    nvidia_driver_loaded: bool = False
     cpu_count: int = 4
 
 
@@ -73,10 +75,18 @@ def detect_hardware() -> Hardware:
         for line in result.stdout.splitlines():
             lower = line.lower()
             if ("vga" in lower or "3d controller" in lower or "display" in lower):
-                if "nvidia" in lower or "amd" in lower or "radeon" in lower:
+                if "nvidia" in lower:
                     hw.has_pcie_gpu = True
+                    hw.pcie_gpu_vendor = "nvidia"
+                    break
+                if "amd" in lower or "radeon" in lower:
+                    hw.has_pcie_gpu = True
+                    hw.pcie_gpu_vendor = "amd"
                     break
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
+
+    # NVIDIA driver
+    hw.nvidia_driver_loaded = Path("/proc/driver/nvidia/version").exists()
 
     return hw

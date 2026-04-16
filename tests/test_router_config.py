@@ -18,8 +18,15 @@ def _generate_ini(config) -> str:
     """Generate ini content using the actual router_config step logic."""
     from installer.steps.router_config import RouterConfigStep
     from installer.hardware import Hardware
+    from installer.backend import BackendType, get_backend_config
 
-    step = RouterConfigStep(config, Hardware())
+    hw = Hardware()
+    backend = get_backend_config(BackendType.VULKAN, hw)
+    # Resolve default device the same way __main__.py does.
+    if config.defaults.device is None:
+        config.defaults.device = backend.default_device
+
+    step = RouterConfigStep(config, hw, backend)
     # Reach into the step's run() logic without writing to disk.
     # Replicate only the string building part.
     from installer.steps.router_config import EXTRA_KEY_MAP

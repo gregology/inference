@@ -1,6 +1,8 @@
 # inference
 
-Turn a [Radxa Orion O6](https://radxa.com/products/orion/o6/) (or any Debian Bookworm box) into a local LLM inference server — one command, many models.
+Turn any recent Debian or Ubuntu server into a local LLM inference server. Auto-detects GPU hardware and builds llama.cpp with the right backend (Vulkan, CUDA, or CPU-only).
+
+I built this for my Radax Orion O6 with 64Gb of RAM but it might work for you ¯\\\_(ツ)\_/¯
 
 ## Quick start
 
@@ -8,12 +10,18 @@ Turn a [Radxa Orion O6](https://radxa.com/products/orion/o6/) (or any Debian Boo
 curl -fsSL https://raw.githubusercontent.com/gregology/inference/refs/heads/main/install.sh | sudo bash
 ```
 
+The installer auto-detects your GPU and selects the best backend. To override:
+
+```bash
+curl -fsSL ... | sudo bash -s -- --backend cuda
+```
+
 This will:
 
-1. Install system packages (build tools, Vulkan, etc.)
+1. Install system packages (build tools, GPU libraries for your backend)
 2. Create a dedicated `llm` system user under `/srv/llm`
-3. Grant GPU render-node access
-4. Build Vulkan-Headers and llama.cpp from source
+3. Grant GPU render-node access (if applicable)
+4. Build llama.cpp from source with the detected backend
 5. Set up the Hugging Face CLI
 6. Download every model listed in `models.toml`
 7. Generate a `models.ini` router config
@@ -34,6 +42,7 @@ curl -fsSL ... | sudo bash -s -- --prune
 ## Options
 
 ```
+--backend B     GPU backend: vulkan, cuda, cpu (default: auto-detect)
 --prune         Remove model files for entries no longer in models.toml
 --dry-run       Show what would be done without making changes
 --only STEP     Run a single step (packages, user, gpu-permissions,
@@ -104,7 +113,7 @@ The router loads models on demand. With `--models-max 1`, requesting a different
 python3 -m pytest tests/ -v
 
 # Offline only (fast, no network)
-python3 -m pytest tests/test_config.py tests/test_router_config.py -v
+python3 -m pytest tests/test_backend.py tests/test_config.py tests/test_router_config.py -v
 
 # HF manifest validation only
 python3 -m pytest tests/test_huggingface.py -v
@@ -117,30 +126,50 @@ The HF tests verify that every repo, file, and include pattern in `models.toml` 
 ```
 install.sh            Shell bootstrap (ensures git + python3, clones repo)
   └─ python3 -m installer
-       ├── config.py       Load + validate models.toml (stdlib tomllib)
-       ├── hardware.py     Detect GPU, NPU, Coral TPU, PCIe devices
-       ├── runner.py       Iterate steps, skip completed, report errors
+       ├── backend.py     Backend detection and configuration (vulkan/cuda/cpu)
+       ├── config.py      Load + validate models.toml (stdlib tomllib)
+       ├── hardware.py    Detect GPU, NPU, Coral TPU, PCIe devices
+       ├── runner.py      Iterate steps, skip completed, report errors
        └── steps/
-            ├── packages.py        apt packages
+            ├── packages.py        apt packages (common + backend-specific)
             ├── user.py            llm user + dirs
             ├── gpu_permissions.py render node access
-            ├── vulkan_headers.py  build newer headers
-            ├── build_llama.py     cmake llama.cpp
+            ├── vulkan_headers.py  build newer headers (Vulkan only)
+            ├── build_llama.py     cmake llama.cpp (backend-aware)
             ├── huggingface.py     HF CLI venv
             ├── models.py          download / prune models
             ├── router_config.py   generate models.ini
             └── systemd.py         llama-router.service
+
+installer/backend.py defines three backends:
+  vulkan — Arm Mali, AMD, Intel integrated GPUs via Vulkan
+  cuda   — NVIDIA GPUs with the proprietary driver
+  cpu    — no GPU acceleration
 ```
 
 Zero Python dependencies beyond the standard library. The HF CLI gets its own venv under `/srv/llm/venv`.
 
+## Backends
+
+The installer auto-detects your hardware and selects the best backend:
+
+| Priority | Condition | Backend |
+|----------|-----------|---------|
+| 1 | NVIDIA driver loaded | `cuda` |
+| 2 | Vulkan render nodes present | `vulkan` |
+| 3 | Fallback | `cpu` |
+
+Override with `--backend vulkan|cuda|cpu`. Each backend determines which packages to install, which cmake flags to pass to llama.cpp, and which installer steps to skip.
+
+Adding a new backend (e.g., ROCm for AMD) requires only adding a new entry in `installer/backend.py` — no step code changes needed.
+
 ## Hardware
 
-The Radxa Orion O6 provides:
+The installer detects available hardware via `hardware.py`:
 
-- **GPU** — Arm Immortalis G720 (Vulkan), used for inference
-- **NPU** — available but not currently used for LLM workloads
-- **TPU** — Coral M.2 Accelerator (if installed)
-- **PCIe x16** — free slot for a discrete GPU
+- **GPU** — Vulkan render nodes, NVIDIA driver, PCIe GPU vendor
+- **NPU** — Rockchip RKNPU (detected, not yet used for LLM workloads)
+- **TPU** — Google Coral M.2 Accelerator (detected if installed)
+- **PCIe** — discrete NVIDIA or AMD GPUs via lspci
 
-The installer auto-detects available hardware via `hardware.py` and configures accordingly. Extension points exist for future NPU/TPU/vision/speech capabilities.
+Originally built for the [Radxa Orion O6](https://radxa.com/products/orion/o6/) (Arm Immortalis G720, 64GB unified RAM) but works on any Debian/Ubuntu server with or without a GPU.

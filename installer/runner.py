@@ -6,6 +6,7 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .backend import BackendConfig
     from .config import Config
     from .hardware import Hardware
     from .step import Step
@@ -15,6 +16,7 @@ def run_steps(
     steps: list[type[Step]],
     config: Config,
     hw: Hardware,
+    backend: BackendConfig,
 ) -> int:
     only = None
     for arg in sys.argv:
@@ -33,9 +35,14 @@ def run_steps(
 
     errors = 0
     for step_cls in steps:
-        step = step_cls(config, hw)
+        step = step_cls(config, hw, backend)
 
         if only and step.name != only:
+            continue
+
+        if step.name in backend.skip_steps:
+            print(f"\n── {step.name}: {step.description} ──")
+            print(f"   (not needed for {backend.type.value} backend, skipping)")
             continue
 
         print(f"\n── {step.name}: {step.description} ──")

@@ -6,6 +6,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .backend import BackendConfig
     from .config import Config
     from .hardware import Hardware
 
@@ -20,9 +21,10 @@ class Step:
     name: str = ""
     description: str = ""
 
-    def __init__(self, config: Config, hw: Hardware) -> None:
+    def __init__(self, config: Config, hw: Hardware, backend: BackendConfig) -> None:
         self.config = config
         self.hw = hw
+        self.backend = backend
 
     def check(self) -> bool:
         """Return True if this step has already been applied."""
