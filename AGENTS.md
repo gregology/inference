@@ -67,6 +67,7 @@ installer/
     user.py                 llm user + directories
     gpu_permissions.py      render node access
     vulkan_headers.py       build newer Vulkan-Headers
+    spirv_headers.py        build SPIRV-Headers (ggml-vulkan dependency)
     build_llama.py          build llama.cpp
     huggingface.py          HF CLI venv
     models.py               download / prune models

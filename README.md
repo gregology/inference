@@ -37,8 +37,8 @@ curl -fsSL ... | sudo bash -s -- --prune
 --prune         Remove model files for entries no longer in models.toml
 --dry-run       Show what would be done without making changes
 --only STEP     Run a single step (packages, user, gpu-permissions,
-                vulkan-headers, build-llama, huggingface, models,
-                router-config, systemd)
+                vulkan-headers, spirv-headers, build-llama, huggingface,
+                models, router-config, systemd)
 --host HOST     Listen address (default: 0.0.0.0)
 --port PORT     Listen port (default: 8000)
 --models-toml   Path to models.toml (default: repo's models.toml)
