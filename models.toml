@@ -67,18 +67,6 @@ gpu_layers = 999
 
 # ── Large models (exceed 64GB, rely on mmap) ─────────────────────
 
-[models.glm-5_1]
-repo = "unsloth/GLM-5.1-GGUF"
-include = "UD-Q4_K_XL/*"
-large = true
-dir = "glm-5.1"
-
-[models.glm-5_1.profiles.default]
-name = "glm-5.1:744b"
-ctx_size = 32768
-gpu_layers = 999
-extra = { mlock = false, cpu_moe = true, threads = 8, jinja = true }
-
 [models.glm-5_3-flash]
 repo = "unsloth/GLM-5.3-Flash-GGUF"
 include = "UD-Q4_K_XL/*"
