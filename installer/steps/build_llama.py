@@ -14,16 +14,20 @@ class BuildLlamaStep(Step):
     name = "build-llama"
     description = "Build llama.cpp (Vulkan, curl disabled)"
 
+    def _default_branch(self) -> str:
+        for branch in ("master", "main"):
+            if self.sh_ok(
+                f"sudo -u llm git -C {LLAMA_DIR} rev-parse --verify --quiet origin/{branch}"
+            ):
+                return branch
+        raise RuntimeError(f"Could not determine default branch for {LLAMA_DIR}")
+
     def _desired_ref(self) -> str:
         """Return the full commit hash for the desired build."""
         ref = self.config.llama_cpp_ref
         if ref == "latest":
             # Resolve origin's default branch.
-            for branch in ("master", "main"):
-                h = self.sh_output(f"git -C {LLAMA_DIR} rev-parse origin/{branch}")
-                if h:
-                    return h
-            return ""
+            return self.sh_output(f"git -C {LLAMA_DIR} rev-parse origin/{self._default_branch()}")
         # Pinned ref — resolve to full hash.
         return self.sh_output(f"git -C {LLAMA_DIR} rev-parse {ref}")
 
@@ -51,7 +55,12 @@ class BuildLlamaStep(Step):
         # Checkout the desired ref.
         ref = self.config.llama_cpp_ref
         if ref == "latest":
-            self.sh_live(f"sudo -u llm git -C {LLAMA_DIR} pull")
+            # A previous pinned build may have left the checkout in detached
+            # HEAD, where `git pull` fails ("You are not currently on a
+            # branch"). Reset the local default branch onto origin's instead —
+            # this works from detached HEAD or any stale branch state.
+            branch = self._default_branch()
+            self.sh_live(f"sudo -u llm git -C {LLAMA_DIR} checkout -B {branch} origin/{branch}")
         else:
             self.sh(f"sudo -u llm git -C {LLAMA_DIR} checkout {ref}")
             print(f"   Pinned to {ref}")
