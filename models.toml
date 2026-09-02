@@ -16,9 +16,19 @@
 
 [build]
 # Pin llama.cpp to a specific commit. Set to "latest" to track HEAD.
-# b8005 (914dde72b) is the last known build without the Mali Vulkan
-# descriptor set regression (ggml-vulkan.cpp assertion failure).
-llama_cpp_ref = "914dde72b"
+#
+# History: this used to be pinned to 914dde72b (b8005) to dodge the Mali Vulkan
+# descriptor-set assert (GGML_ASSERT(descriptor_set_idx < descriptor_sets.size()))
+# on the G720/CIX CP8180 — ggml-org/llama.cpp#23057. Root cause was a 32-bit
+# overflow in CEIL_DIV when the Mali/CIX driver reports
+# maxComputeWorkGroupCount = UINT32_MAX; fixed upstream by PR #25245
+# (merged 2026-07-06, commit 86961efd5675), so the workaround is obsolete.
+#
+# "latest" is now required anyway: Qwen3.8 and GLM-5.3 use architectures that
+# only exist in recent builds (GLM-5.3-Flash: PR #27773; Qwen3.8 series support
+# also landed well after b8005). The old pin predates all of these and
+# llama-server refuses to load them, leaving router requests hanging.
+llama_cpp_ref = "latest"
 
 [defaults]
 mmap = true
