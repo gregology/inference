@@ -49,30 +49,22 @@ curl -fsSL ... | sudo bash -s -- --prune
 The model manifest. Each model has a Hugging Face source and one or more router profiles:
 
 ```toml
-[models.glm-4_7-flash]
-repo = "unsloth/GLM-4.7-Flash-GGUF"
-file = "GLM-4.7-Flash-Q4_K_M.gguf"
+[models.qwen3_8-27b]
+repo = "unsloth/Qwen3.8-27B-GGUF"
+file = "Qwen3.8-27B-UD-Q4_K_M.gguf"
 
-[models.glm-4_7-flash.profiles.gpu]
-name = "glm-4.7-flash:30b"
+[models.qwen3_8-27b.profiles.default]
+name = "qwen3.8:27b"
 ctx_size = 65536
 gpu_layers = 999
-extra = { jinja = true, temp = 0.7 }
-
-[models.glm-4_7-flash.profiles.cpu]
-name = "glm-4.7-flash:30b-cpu"
-ctx_size = 65536
-gpu_layers = 0
-device = "none"
-extra = { jinja = true, temp = 0.7 }
 ```
 
 For models that exceed available RAM (large MoE models), use `include` instead of `file` and set `large = true`:
 
 ```toml
-[models.qwen3_5-397b]
-repo = "unsloth/Qwen3.5-397B-A17B-GGUF"
-include = "Q4_K_M/*"
+[models.glm-5_3-flash]
+repo = "unsloth/GLM-5.3-Flash-GGUF"
+include = "UD-Q4_K_XL/*"
 large = true
 ```
 
@@ -84,7 +76,7 @@ Once running, use the OpenAI-compatible API:
 curl -s http://YOUR_IP:8000/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "glm-4.7-flash:30b",
+    "model": "qwen3.8:27b",
     "messages": [{"role":"user","content":"Hello!"}]
   }' | jq .
 ```
