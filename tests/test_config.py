@@ -1,8 +1,10 @@
 """Offline tests for models.toml parsing and validation."""
 
 import argparse
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def _load():
@@ -68,6 +70,58 @@ class TestConfigLoading(unittest.TestCase):
             for profile in model.profiles:
                 with self.subTest(profile=profile.name):
                     self.assertGreater(profile.ctx_size, 0)
+
+    def test_no_removed_llama_options(self):
+        """llama.cpp removed these flags (#28334); the router rejects them."""
+        removed = {"mmap", "no_mmap", "mlock", "no_mlock", "direct_io", "no_direct_io"}
+        config = _load()
+        for model in config.models:
+            for profile in model.profiles:
+                with self.subTest(profile=profile.name):
+                    self.assertFalse(removed & set(profile.extra))
+
+
+class TestFirstGguf(unittest.TestCase):
+
+    def _model(self, tmp, **kwargs):
+        from installer.config import Model
+        model = Model(id="m", repo="org/repo", **kwargs)
+        patcher = mock.patch.object(
+            Model, "local_dir", new_callable=mock.PropertyMock, return_value=tmp,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return model
+
+    def _touch(self, root, *names):
+        for name in names:
+            path = Path(root) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+
+    def test_single_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model = self._model(tmp, file="a.gguf")
+            self.assertEqual(model.first_gguf, f"{tmp}/a.gguf")
+
+    def test_shard_directory_include(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._touch(tmp, "Q4/x-00002-of-00002.gguf", "Q4/x-00001-of-00002.gguf",
+                        "Q8/x-00001-of-00002.gguf")
+            model = self._model(tmp, include="Q4/*")
+            self.assertEqual(model.first_gguf, f"{tmp}/Q4/x-00001-of-00002.gguf")
+
+    def test_root_level_include(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._touch(tmp, "x-IQ4_XS-00002-of-00002.gguf", "x-IQ4_XS-00001-of-00002.gguf",
+                        "x-Q4_K_M-00001-of-00002.gguf", "mmproj-x-F16.gguf")
+            model = self._model(tmp, include="x-IQ4_XS-*.gguf")
+            self.assertEqual(model.first_gguf, f"{tmp}/x-IQ4_XS-00001-of-00002.gguf")
+
+    def test_not_downloaded_falls_back_to_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self._model(tmp, include="Q4/*").first_gguf, f"{tmp}/Q4/")
+            self.assertEqual(self._model(tmp, include="x-*.gguf").first_gguf, f"{tmp}/")
 
 
 if __name__ == "__main__":

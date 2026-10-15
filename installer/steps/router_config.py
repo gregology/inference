@@ -13,8 +13,8 @@ EXTRA_KEY_MAP = {
     "temp": "temp",
     "top_p": "top-p",
     "threads": "threads",
-    "mlock": "mlock",
     "cpu_moe": "cpu-moe",
+    "load_mode": "load-mode",
 }
 
 
@@ -35,7 +35,7 @@ class RouterConfigStep(Step):
             "version = 1",
             "",
             "[*]",
-            f"mmap = {'true' if d.mmap else 'false'}",
+            f"load-mode = {d.load_mode}",
             f"parallel = {d.parallel}",
             f"cache-type-k = {d.cache_type_k}",
             f"cache-type-v = {d.cache_type_v}",

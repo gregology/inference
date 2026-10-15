@@ -59,13 +59,27 @@ ctx_size = 65536
 gpu_layers = 999
 ```
 
-For models that exceed available RAM (large MoE models), use `include` instead of `file` and set `large = true`:
+For models that exceed available RAM (large MoE models), use `include` instead of `file` and set `large = true`. The pattern can name a shard directory (`IQ3_XXS/*`) or root-level shards (`Name-IQ4_XS-*.gguf`). Keep the routed experts on the CPU and force mmap so they page in from NVMe; llama.cpp's default `load_mode = "auto"` disables mmap on iGPUs like the O6's Mali:
 
 ```toml
-[models.glm-5_3-flash]
-repo = "unsloth/GLM-5.3-Flash-GGUF"
-include = "UD-Q4_K_XL/*"
+[models.qwen3_8-flash-next-uncensored]
+repo = "orcarouter/Qwen3.8-Flash-Next-Uncensored-GGUF"
+include = "Qwen3.8-Flash-Next-Uncensored-IQ4_XS-*.gguf"
 large = true
+
+[models.qwen3_8-flash-next-uncensored.profiles.default]
+name = "qwen3.8-flash-next-uncensored:125b"
+ctx_size = 65536
+gpu_layers = 999
+extra = { load_mode = "mmap", cpu_moe = true, threads = 8, ctx_checkpoints = 8 }
+```
+
+### Gated repos
+
+Some repos (all the `orcarouter/*` ones) are gated. Accept the terms on each repo's Hugging Face page, then log in once as the `llm` user so the installer's downloads can authenticate:
+
+```bash
+sudo -u llm env HF_HOME=/srv/llm/cache/huggingface /srv/llm/venv/bin/hf auth login
 ```
 
 ## Usage

@@ -31,7 +31,7 @@ def _generate_ini(config) -> str:
         "version = 1",
         "",
         "[*]",
-        f"mmap = {'true' if d.mmap else 'false'}",
+        f"load-mode = {d.load_mode}",
         f"parallel = {d.parallel}",
         f"cache-type-k = {d.cache_type_k}",
         f"cache-type-v = {d.cache_type_v}",

@@ -48,19 +48,22 @@ class Model:
         """
         if self.file:
             return f"{self.local_dir}/{self.file}"
-        # Multi-file (include pattern like Q4_K_M/*): find first shard on disk.
-        prefix = self.include.split("/")[0] if self.include else ""
-        shard_dir = Path(self.local_dir) / prefix
-        if shard_dir.is_dir():
-            shards = sorted(shard_dir.glob("*.gguf"))
-            if shards:
-                return str(shards[0])
-        return f"{self.local_dir}/{prefix}/"
+        # Multi-file: the include pattern is either a shard directory
+        # (Q4_K_M/*) or root-level shards (Name-Q4_K_M-*.gguf). Glob it
+        # relative to the model dir and take the first shard.
+        shards = sorted(
+            p for p in Path(self.local_dir).glob(self.include or "")
+            if p.suffix == ".gguf"
+        )
+        if shards:
+            return str(shards[0])
+        prefix = self.include.split("/")[0] if self.include and "/" in self.include else ""
+        return f"{self.local_dir}/{prefix}/" if prefix else f"{self.local_dir}/"
 
 
 @dataclass
 class Defaults:
-    mmap: bool = True
+    load_mode: str = "auto"
     parallel: int = 1
     cache_type_k: str = "q4_0"
     cache_type_v: str = "q4_0"
@@ -98,7 +101,7 @@ def load_config(args) -> Config:
 
     defaults_raw = raw.get("defaults", {})
     defaults = Defaults(
-        mmap=defaults_raw.get("mmap", True),
+        load_mode=defaults_raw.get("load_mode", "auto"),
         parallel=defaults_raw.get("parallel", 1),
         cache_type_k=defaults_raw.get("cache_type_k", "q4_0"),
         cache_type_v=defaults_raw.get("cache_type_v", "q4_0"),

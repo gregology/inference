@@ -31,7 +31,9 @@ The installer has zero Python dependencies beyond the standard library. The Hugg
 
 Prefer `unsloth` quantizations when available. Unsloth provides well-optimized GGUF quantizations (particularly Q4_K_M) that balance quality against memory pressure on the O6's 64GB unified RAM. Check [unsloth's Hugging Face org](https://huggingface.co/unsloth) first before looking at other quantization sources.
 
-For models that exceed available RAM (large MoE models like GLM-5.3-Flash 320B or Qwen3.8-Flash-Next 125B), set `large = true` in the TOML block. The installer doesn't enforce specific behavior for this flag yet, but it signals that the model relies on mmap paging from NVMe rather than fitting in memory.
+For models that exceed available RAM (large MoE models like GLM-5.3-Flash 320B or Qwen3.8-Flash-Next 125B), set `large = true` in the TOML block. The installer doesn't enforce specific behavior for this flag yet, but it signals that the model relies on mmap paging from NVMe rather than fitting in memory. Such profiles need `extra = { load_mode = "mmap", cpu_moe = true }`: llama.cpp's default load mode skips mmap on iGPUs, and `cpu_moe` keeps the routed experts in evictable page cache.
+
+Before adding a GGUF, check that its `general.architecture` matches the name mainline llama.cpp registers. Quants made with an unmerged fork can carry a different name (e.g. `glm5next` vs mainline `glm5-next`) and will fail to load.
 
 ## Hardware
 

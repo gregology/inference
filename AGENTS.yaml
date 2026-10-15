@@ -12,7 +12,11 @@ context:
       https://huggingface.co/unsloth before other sources.
 
       For multi-shard models that exceed 64GB RAM, use `include` instead of
-      `file` and set `large = true`.
+      `file`, set `large = true`, and give the profile
+      `extra = { load_mode = "mmap", cpu_moe = true }`.
+
+      Router keys must be valid llama-server options: the router refuses to
+      start on unknown keys (e.g. the removed `mmap`/`mlock` flags).
 
   - match: ["installer/steps/*.py"]
     on: [edit, create]

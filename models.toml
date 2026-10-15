@@ -31,7 +31,12 @@
 llama_cpp_ref = "latest"
 
 [defaults]
-mmap = true
+# llama.cpp replaced --mmap/--mlock with --load-mode (the old flags were
+# removed in ggml-org/llama.cpp#28334, and the router rejects unknown keys).
+# "auto" mmaps except on iGPUs such as the O6's Mali, where it reads straight
+# into device memory instead of holding the model in RAM twice
+# (ggml-org/llama.cpp#26081). Large models override this with "mmap".
+load_mode = "auto"
 parallel = 1
 cache_type_k = "q4_0"
 cache_type_v = "q4_0"
@@ -41,17 +46,12 @@ ctx_size = 8192
 no_warmup = true
 
 # ── Small / Medium models ────────────────────────────────────────
-
-# ── OLMo ─────────────────────────────────────────────────────────
-
-[models.olmo-3_1-32b-think]
-repo = "unsloth/Olmo-3.1-32B-Think-GGUF"
-file = "Olmo-3.1-32B-Think-Q4_K_M.gguf"
-dir = "olmo-3.1-32b-think"
-
-[models.olmo-3_1-32b-think.profiles.default]
-name = "olmo-3.1-thinking:32b"
-ctx_size = 16384
+#
+# Dense hybrid-attention models: only 16 of 64 layers keep a KV cache
+# (the rest are Gated DeltaNet with fixed-size state), so q4_0 KV costs
+# ~18 KiB/token. 128K context is ~2.25 GiB of KV on top of ~16 GB of
+# weights. The native 256K would also fit, but prompt processing on the
+# Mali is far too slow to ever fill it.
 
 # ── Qwen 3.8 ────────────────────────────────────────────────────
 
@@ -65,28 +65,68 @@ name = "qwen3.8:27b"
 ctx_size = 65536
 gpu_layers = 999
 
+# Gated repo: needs an HF token for the llm user (see README).
+[models.qwen3_8-27b-uncensored]
+repo = "orcarouter/Qwen3.8-27B-Uncensored-GGUF"
+file = "Qwen3.8-27B-Uncensored-Q4_K_M.gguf"
+dir = "qwen-3.8-27b-uncensored"
+
+[models.qwen3_8-27b-uncensored.profiles.default]
+name = "qwen3.8-uncensored:27b"
+ctx_size = 131072
+gpu_layers = 999
+
+# ── OrcaSAQ 2 ───────────────────────────────────────────────────
+
+# Single-file mixed-precision quant (IQ4_XS/Q5_K/Q6_K) of the same
+# Qwen3.8-27B-Uncensored weights. Gated repo.
+[models.orcasaq-2-cyber-27b]
+repo = "orcarouter/OrcaSAQ-2-Cyber-27B-Uncensored-GGUF"
+file = "OrcaSAQ-2-27B-Uncensored.gguf"
+dir = "orcasaq-2-cyber-27b-uncensored"
+
+[models.orcasaq-2-cyber-27b.profiles.default]
+name = "orcasaq-2-cyber:27b"
+ctx_size = 131072
+gpu_layers = 999
+
 # ── Large models (exceed 64GB, rely on mmap) ─────────────────────
+#
+# Routed experts stay on the CPU (cpu_moe) in mmap'd, evictable page
+# cache; everything else is offloaded to the GPU. Every GB of RAM used
+# elsewhere is a GB of experts re-read from NVMe, so these keep context
+# and context checkpoints (recurrent-state snapshots, 32 per slot by
+# default) small.
 
-[models.glm-5_3-flash]
-repo = "unsloth/GLM-5.3-Flash-GGUF"
-include = "UD-Q4_K_XL/*"
+# IQ4_XS over Q4_K_M: 65 GB of routed experts vs 81 GB (K-quants fall
+# back to Q8_0/Q5_0 on the 640-wide ffn_down), so far more of the expert
+# set stays resident in RAM. The 29 GB PLE n-gram table is read a few
+# rows per token. KV is ~7 KiB/token. Gated repo.
+[models.qwen3_8-flash-next-uncensored]
+repo = "orcarouter/Qwen3.8-Flash-Next-Uncensored-GGUF"
+include = "Qwen3.8-Flash-Next-Uncensored-IQ4_XS-*.gguf"
 large = true
-dir = "glm-5.3-flash"
+dir = "qwen-3.8-flash-next-uncensored"
 
-[models.glm-5_3-flash.profiles.default]
-name = "glm-5.3-flash:320b"
+[models.qwen3_8-flash-next-uncensored.profiles.default]
+name = "qwen3.8-flash-next-uncensored:125b"
+ctx_size = 65536
+gpu_layers = 999
+extra = { load_mode = "mmap", cpu_moe = true, threads = 8, ctx_checkpoints = 8 }
+
+# orcarouter's own GLM-5.3-Flash-Uncensored GGUFs were converted with the
+# abandoned glm5next fork (ggml-org/llama.cpp#27754) and fail on mainline
+# with "unknown model architecture: 'glm5next'". This is an imatrix
+# re-quant of the same orcarouter weights with a mainline (glm5-next)
+# header. IQ3_XXS is its largest quant (134 GB).
+[models.glm-5_3-flash-uncensored]
+repo = "BoldingBuilds/orcarouter_GLM-5.3-Flash-Uncensored-GGUF"
+include = "IQ3_XXS/*"
+large = true
+dir = "glm-5.3-flash-uncensored"
+
+[models.glm-5_3-flash-uncensored.profiles.default]
+name = "glm-5.3-flash-uncensored:320b"
 ctx_size = 32768
 gpu_layers = 999
-extra = { mlock = false, cpu_moe = true, threads = 8, jinja = true, temp = 1.0, top_p = 0.95 }
-
-[models.qwen3_8-flash-next]
-repo = "unsloth/Qwen3.8-Flash-Next-GGUF"
-include = "UD-Q4_K_XL/*"
-large = true
-dir = "qwen-3.8-flash-next"
-
-[models.qwen3_8-flash-next.profiles.default]
-name = "qwen3.8-flash-next:125b"
-ctx_size = 32768
-gpu_layers = 999
-extra = { mlock = false, cpu_moe = true, threads = 8 }
+extra = { load_mode = "mmap", cpu_moe = true, threads = 8, ctx_checkpoints = 8 }
