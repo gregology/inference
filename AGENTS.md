@@ -41,7 +41,7 @@ Before adding a GGUF, check that its `general.architecture` matches the name mai
 
 The Radxa Orion O6 provides:
 
-- **GPU** — Arm Immortalis G720, exposed via Vulkan. Used for dense models with plain K-quants. ggml-vulkan needs a current glslc (the `shaderc` step) to use its int8 dot-product shaders, and the router runs with `GGML_VK_DISABLE_COOPMAT=1` and `GGML_VK_FORCE_MMVQ=1` when `hardware.py` detects a Mali.
+- **GPU** — Arm Immortalis G720, exposed via Vulkan. Used for dense models with plain K-quants. ggml-vulkan needs a current glslc (the `shaderc` step) to use its int8 dot-product shaders, and the router runs with `GGML_VK_DISABLE_COOPMAT=1` and `GGML_VK_FORCE_MMVQ=1` when `hardware.py` detects a Mali. GPU profiles set `ubatch_size = 64`: ggml-vulkan's 64-wide matmul tile is the fastest on the Mali (13-19% faster 27B prompts than the default 512 ubatch). CPU profiles keep the default, since the CPU backend has no tile effect (Flash-Next: 8.01 vs 7.95 tok/s).
 - **CPU** — 8x Cortex-A720 plus 4x Cortex-A520. Runs the large MoE models and IQ-heavy quants. Generate on the 8 big cores (`threads = 8`) and process prompts on all 12 (`threads_batch = 12`, 6-16% faster), but only in single-slot profiles: llama.cpp uses the batch threads whenever several slots generate at once, which slowed Flash-Next's two slots by 24%.
 - **NPU** — Rockchip RKNPU. Not currently used for LLM inference but detected by `hardware.py`.
 - **TPU** — Google Coral M.2 Accelerator (if installed in the free M.2 slot). Detected via `/dev/apex_*`.
