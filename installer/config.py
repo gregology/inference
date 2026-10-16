@@ -71,6 +71,7 @@ class Defaults:
     gpu_layers: str = "auto"
     ctx_size: int = 8192
     no_warmup: bool = True
+    cache_ram: int = 8192
 
 
 @dataclass
@@ -109,6 +110,7 @@ def load_config(args) -> Config:
         gpu_layers=defaults_raw.get("gpu_layers", "auto"),
         ctx_size=defaults_raw.get("ctx_size", 8192),
         no_warmup=defaults_raw.get("no_warmup", True),
+        cache_ram=defaults_raw.get("cache_ram", 8192),
     )
 
     models = []

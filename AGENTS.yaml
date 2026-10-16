@@ -8,12 +8,17 @@ context:
       installer/steps/router_config.py (generates models.ini) read from it.
       No model-specific data should exist in Python code.
 
-      Prefer unsloth quantizations (Q4_K_M) when available. Check
-      https://huggingface.co/unsloth before other sources.
+      Prefer Q4_K_M quantizations. For GPU-run models, use plain K-quant
+      files (Q4_K/Q6_K tensors only): IQ4_XS-heavy quants, including
+      unsloth's UD-* files, run ~35% slower on the O6's Mali. Check
+      https://huggingface.co/unsloth first, then sources such as
+      lmstudio-community. Run IQ-heavy files on the CPU instead
+      (`device = "none"`, `gpu_layers = 0`, `threads = 8`).
 
       For multi-shard models that exceed 64GB RAM, use `include` instead of
-      `file`, set `large = true`, and give the profile
-      `extra = { load_mode = "mmap", cpu_moe = true }`.
+      `file`, set `large = true`, and run the profile on the CPU:
+      `device = "none"`, `gpu_layers = 0`,
+      `extra = { load_mode = "mmap", threads = 8 }`.
 
       Router keys must be valid llama-server options: the router refuses to
       start on unknown keys (e.g. the removed `mmap`/`mlock` flags).
@@ -46,13 +51,24 @@ decisions:
       (flat key-value with nested profiles) maps naturally to TOML sections.
     match: ["models.toml", "installer/config.py"]
 
-  - decision: "Prefer unsloth GGUF quantizations"
+  - decision: "Prefer plain K-quant GGUFs; unsloth first when it has one"
     rationale: |
-      Unsloth provides well-tested Q4_K_M quantizations optimized for
-      constrained hardware. Consistent naming conventions and reliable
-      availability on Hugging Face. The O6's 64GB unified memory makes Q4_K_M
-      the sweet spot — small enough to fit alongside the system, large enough
-      to preserve model quality.
+      The O6's 64GB unified memory makes Q4_K_M the sweet spot — small enough
+      to fit alongside the system, large enough to preserve model quality.
+      Unsloth has consistent naming and reliable availability, but its UD-*
+      quants mix in IQ4_XS, which the Mali runs ~35% slower than Q4_K
+      (27B: 2.6/1.5 vs 3.9/2.4 tok/s prompt/generation). Use a plain Q4_K_M
+      (e.g. lmstudio-community) for GPU-run models.
+    match: ["models.toml"]
+
+  - decision: "Large MoE models run CPU-only"
+    rationale: |
+      On the O6, keeping routed experts on the CPU and the rest on the GPU
+      (cpu_moe) was 1.5-2.5x slower than running the whole model on the CPU:
+      the Mali's kernels are slow and each layer hands off between devices.
+      Flash-Next went from 1.0/1.9 to 7.9/5.0 tok/s, GLM-5.3 from 0.63 to
+      1.05 tok/s generation. Use 8 threads; 12 pulls in the slow A520 cores.
+    revisit_when: "ggml-vulkan's Mali matmul kernels or the Mali driver improve"
     match: ["models.toml"]
 
   - decision: "models.toml as single source of truth"

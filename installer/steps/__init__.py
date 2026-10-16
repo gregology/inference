@@ -5,6 +5,7 @@ from .user import UserStep
 from .gpu_permissions import GpuPermissionsStep
 from .vulkan_headers import VulkanHeadersStep
 from .spirv_headers import SpirvHeadersStep
+from .shaderc import ShadercStep
 from .build_llama import BuildLlamaStep
 from .huggingface import HuggingFaceStep
 from .models import ModelsStep
@@ -17,6 +18,7 @@ ALL_STEPS: list = [
     GpuPermissionsStep,
     VulkanHeadersStep,
     SpirvHeadersStep,
+    ShadercStep,
     BuildLlamaStep,
     HuggingFaceStep,
     ModelsStep,

@@ -10,6 +10,7 @@ from pathlib import Path
 @dataclass
 class Hardware:
     gpu_device: str | None = None
+    has_mali: bool = False
     render_nodes: list[str] = field(default_factory=list)
     render_group: str = "render"
     has_npu: bool = False
@@ -54,6 +55,13 @@ def detect_hardware() -> Hardware:
                 break
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
+
+    # Arm Mali (kbase driver). Checked via sysfs because vulkaninfo can
+    # crash on headless boards that ship several Vulkan ICDs.
+    hw.has_mali = (
+        Path("/sys/class/misc/mali0").exists()
+        or "mali" in (hw.gpu_device or "").lower()
+    )
 
     # Coral TPU
     hw.has_coral = Path("/dev/apex_0").exists() or bool(list(Path("/dev").glob("apex_*")))
