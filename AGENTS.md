@@ -29,9 +29,9 @@ The installer has zero Python dependencies beyond the standard library. The Hugg
 
 ## Models
 
-Q4_K_M balances quality against memory pressure on the O6's 64GB unified RAM. For models that run on the GPU, prefer plain K-quant files (Q4_K/Q6_K tensors only): the Mali's IQ kernels are slow, and IQ4_XS-heavy quants (including unsloth's UD-* files) run ~35% slower there. Check a file's tensor types before adding it. Check [unsloth's Hugging Face org](https://huggingface.co/unsloth) first, but fall back to sources such as lmstudio-community for plain Q4_K_M. Models that are only available as IQ-heavy quants should run on the CPU (`device = "none"`, `gpu_layers = 0`, `threads = 8`).
+Q4_K_M balances quality against memory pressure on the O6's 64GB unified RAM. For models that run on the GPU, prefer plain K-quant files (Q4_K/Q6_K tensors only): the Mali's IQ kernels are slow, and IQ4_XS-heavy quants (including unsloth's UD-* files) run ~35% slower there. Check a file's tensor types before adding it. Check [unsloth's Hugging Face org](https://huggingface.co/unsloth) first, but fall back to sources such as lmstudio-community for plain Q4_K_M. Models that are only available as IQ-heavy quants should run on the CPU (`device = "none"`, `gpu_layers = 0`, `threads = 8`, `threads_batch = 12`).
 
-For models that exceed available RAM (large MoE models like GLM-5.3-Flash 320B or Qwen3.8-Flash-Next 125B), set `large = true` in the TOML block. The installer doesn't enforce specific behavior for this flag yet, but it signals that the model relies on mmap paging from NVMe rather than fitting in memory. Run such profiles on the CPU with `device = "none"`, `gpu_layers = 0` and `extra = { load_mode = "mmap", threads = 8 }`: splitting experts (CPU) from the rest (GPU) is slower on the O6 than running everything on the 8 big cores, and more threads pull in the slower A520 cores.
+For models that exceed available RAM (large MoE models like GLM-5.3-Flash 320B or Qwen3.8-Flash-Next 125B), set `large = true` in the TOML block. The installer doesn't enforce specific behavior for this flag yet, but it signals that the model relies on mmap paging from NVMe rather than fitting in memory. Run such profiles on the CPU with `device = "none"`, `gpu_layers = 0` and `extra = { load_mode = "mmap", threads = 8, threads_batch = 12 }`: splitting experts (CPU) from the rest (GPU) is slower on the O6 than running everything on the 8 big cores, and more generation threads pull in the slower A520 cores.
 
 Generation runs at 1-5 tok/s, so give thinking models a `reasoning_budget` sized for a few minutes of generation.
 
@@ -42,7 +42,7 @@ Before adding a GGUF, check that its `general.architecture` matches the name mai
 The Radxa Orion O6 provides:
 
 - **GPU** — Arm Immortalis G720, exposed via Vulkan. Used for dense models with plain K-quants. ggml-vulkan needs a current glslc (the `shaderc` step) to use its int8 dot-product shaders, and the router runs with `GGML_VK_DISABLE_COOPMAT=1` and `GGML_VK_FORCE_MMVQ=1` when `hardware.py` detects a Mali.
-- **CPU** — 8x Cortex-A720 plus 4x Cortex-A520. Runs the large MoE models and IQ-heavy quants; use 8 threads.
+- **CPU** — 8x Cortex-A720 plus 4x Cortex-A520. Runs the large MoE models and IQ-heavy quants. Generate on the 8 big cores (`threads = 8`) and process prompts on all 12 (`threads_batch = 12`, 6-16% faster), but only in single-slot profiles: llama.cpp uses the batch threads whenever several slots generate at once, which slowed Flash-Next's two slots by 24%.
 - **NPU** — Rockchip RKNPU. Not currently used for LLM inference but detected by `hardware.py`.
 - **TPU** — Google Coral M.2 Accelerator (if installed in the free M.2 slot). Detected via `/dev/apex_*`.
 - **PCIe x16** — free slot that accepts a full-sized discrete GPU.

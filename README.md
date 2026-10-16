@@ -128,7 +128,8 @@ What made the difference:
 - **Mali environment.** The router unit sets `GGML_VK_DISABLE_COOPMAT=1` (the driver's cooperative-matrix path is ~4x slower than int8 dot-product) and `GGML_VK_FORCE_MMVQ=1` (~20% faster generation).
 - **Plain K-quants on the GPU.** IQ4_XS-heavy files (unsloth's UD quants, OrcaSAQ) are ~35% slower on the Mali.
 - **CPU for MoE.** Splitting experts (CPU) from the rest (GPU) is slower than running the whole model on the 8 big cores.
-- **Not worth it:** MTP speculative decoding (net slower), f16 KV cache, larger batch sizes, more than 8 threads.
+- **12 threads for prompts.** CPU profiles generate on the 8 big cores, but OrcaSAQ and GLM process prompts on all 12 (`threads_batch = 12`; ~11% and ~6% faster). Flash-Next doesn't, because llama.cpp also uses those threads when its two slots generate together, which made each 24% slower.
+- **Not worth it:** MTP speculative decoding (net slower), f16 KV cache, larger batch sizes, more than 8 generation threads.
 
 ## Tests
 

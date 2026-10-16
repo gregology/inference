@@ -94,7 +94,8 @@ extra = { reasoning_budget = 1024 }
 
 # Single-file mixed-precision quant (IQ4_XS/Q5_K/Q6_K) of the same
 # Qwen3.8-27B-Uncensored weights. Gated repo. The Mali's IQ4_XS kernels
-# are slow, so this runs on the CPU's 8 big cores instead.
+# are slow, so this runs on the CPU's 8 big cores instead. Prompts are
+# processed on all 12 cores (threads_batch), ~11% faster than on 8.
 [models.orcasaq-2-cyber-27b]
 repo = "orcarouter/OrcaSAQ-2-Cyber-27B-Uncensored-GGUF"
 file = "OrcaSAQ-2-27B-Uncensored.gguf"
@@ -105,19 +106,23 @@ name = "orcasaq-2-cyber:27b"
 ctx_size = 262144
 device = "none"
 gpu_layers = 0
-extra = { threads = 8, reasoning_budget = 1024 }
+extra = { threads = 8, threads_batch = 12, reasoning_budget = 1024 }
 
 # ── Large models (exceed 64GB, rely on mmap) ─────────────────────
 #
 # These run entirely on the CPU, with the weights in mmap'd, evictable
 # page cache. Splitting them (experts on the CPU, the rest on the GPU)
 # was 1.5-2.5x slower: the Mali's kernels are slow and every layer hands
-# off between devices. Use 8 threads: the 4 little A520 cores hold the
-# big ones back. Every GB of RAM used elsewhere is a GB of experts
-# re-read from NVMe, so these keep context checkpoints (recurrent-state
-# snapshots, 32 per slot by default) few. Context runs at the trained
-# max: it costs ~5.5 GiB (Flash-Next, both slots) and ~9 GiB (GLM, mostly
-# compute buffers), with no measurable slowdown on short requests.
+# off between devices. Generate on 8 threads: the 4 little A520 cores
+# hold the big ones back. Prompt processing is the exception, and GLM
+# runs it on all 12 (threads_batch, ~6% faster). Flash-Next doesn't:
+# llama.cpp also uses the batch threads when its two slots generate
+# together, which made each 24% slower. Every GB of RAM used elsewhere
+# is a GB of experts re-read from NVMe, so these keep context checkpoints
+# (recurrent-state snapshots, 32 per slot by default) few. Context runs
+# at the trained max: it costs ~5.5 GiB (Flash-Next, both slots) and
+# ~9 GiB (GLM, mostly compute buffers), with no measurable slowdown on
+# short requests.
 # Thinking budgets are sized for ~7-8 minutes at each model's generation
 # speed (Flash-Next ~5 tok/s, GLM ~1 tok/s).
 
@@ -158,4 +163,4 @@ name = "glm-5.3-flash-uncensored:320b"
 ctx_size = 1048576
 device = "none"
 gpu_layers = 0
-extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 512 }
+extra = { load_mode = "mmap", threads = 8, threads_batch = 12, ctx_checkpoints = 8, reasoning_budget = 512 }

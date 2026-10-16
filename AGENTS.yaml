@@ -13,12 +13,14 @@ context:
       unsloth's UD-* files, run ~35% slower on the O6's Mali. Check
       https://huggingface.co/unsloth first, then sources such as
       lmstudio-community. Run IQ-heavy files on the CPU instead
-      (`device = "none"`, `gpu_layers = 0`, `threads = 8`).
+      (`device = "none"`, `gpu_layers = 0`, `threads = 8`,
+      `threads_batch = 12`).
 
       For multi-shard models that exceed 64GB RAM, use `include` instead of
       `file`, set `large = true`, and run the profile on the CPU:
       `device = "none"`, `gpu_layers = 0`,
-      `extra = { load_mode = "mmap", threads = 8 }`.
+      `extra = { load_mode = "mmap", threads = 8, threads_batch = 12 }`.
+      Leave out threads_batch when the profile has more than one slot.
 
       Router keys must be valid llama-server options: the router refuses to
       start on unknown keys (e.g. the removed `mmap`/`mlock` flags).
@@ -67,7 +69,11 @@ decisions:
       (cpu_moe) was 1.5-2.5x slower than running the whole model on the CPU:
       the Mali's kernels are slow and each layer hands off between devices.
       Flash-Next went from 1.0/1.9 to 7.9/5.0 tok/s, GLM-5.3 from 0.63 to
-      1.05 tok/s generation. Use 8 threads; 12 pulls in the slow A520 cores.
+      1.05 tok/s generation. Generate on 8 threads; 12 pulls in the slow
+      A520 cores. Prompt processing is 6-16% faster on 12 (threads_batch),
+      but only set it on single-slot profiles: llama.cpp uses batch threads
+      whenever slots generate together, which slowed Flash-Next's two slots
+      by 24%.
     revisit_when: "ggml-vulkan's Mali matmul kernels or the Mali driver improve"
     match: ["models.toml"]
 
