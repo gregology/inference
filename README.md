@@ -56,8 +56,15 @@ file = "Qwen3.8-27B-Q4_K_M.gguf"
 [models.qwen3_8-27b.profiles.default]
 name = "qwen3.8:27b"
 ctx_size = 262144
+device = "none"
+gpu_layers = 0
+extra = { threads = 8, threads_batch = 12, reasoning_budget = 1024 }
+
+[models.qwen3_8-27b.profiles.gpu]
+name = "qwen3.8-gpu:27b"
+ctx_size = 262144
 gpu_layers = 999
-extra = { reasoning_budget = 1024 }
+extra = { threads = 1, reasoning_budget = 1024, ubatch_size = 64 }
 ```
 
 `extra` keys are passed to llama-server as `models.ini` options (underscores become hyphens), so `reasoning_budget = 1024` becomes `--reasoning-budget 1024`.
@@ -75,7 +82,7 @@ name = "qwen3.8-flash-next-uncensored:125b"
 ctx_size = 524288
 device = "none"
 gpu_layers = 0
-extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048, parallel = 2 }
+extra = { load_mode = "mmap", no_repack = true, threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048, parallel = 2 }
 ```
 
 ### Gated repos
@@ -107,30 +114,35 @@ curl -s http://YOUR_IP:8000/v1/models | jq '.data[].id'
 
 llama.cpp lists profile names with an upper-cased tag (`qwen3.8:27B`); the names as written in `models.toml` work too, via an alias.
 
-The router loads models on demand. With `--models-max 1`, requesting a different model unloads the current one first.
+The router loads models on demand and keeps up to `models_max` of them loaded (`[router]` in `models.toml`, 2 by default); requesting another unloads the least recently used one.
 
 ## Performance on the O6
 
-Measured through the router with llama.cpp f12aaa344 and Mali driver r53p0 (tokens/s; prompt measured on a ~1.2K-token prompt, generation at short context):
+Measured through the router with llama.cpp f3363593f and Mali driver r53p0 (tokens/s; prompt measured on a ~1.2K-token prompt, generation at short context):
 
 | Profile | Runs on | Prompt | Generation |
 |---|---|---|---|
-| `qwen3.8:27b`, `qwen3.8-uncensored:27b` | GPU | ~4.4 | ~2.4 |
-| `orcasaq-2-cyber:27b` | CPU | ~2.7 | ~2.1 |
-| `qwen3.8-flash-next-uncensored:125b` | CPU | ~7–8 | ~4.5–5 |
-| `glm-5.3-flash-uncensored:320b` | CPU | ~2 | ~1.1 |
+| `qwen3.8:27b`, `qwen3.8-uncensored:27b` | CPU | ~9.6 | ~2.2 |
+| `qwen3.8-gpu:27b`, `qwen3.8-uncensored-gpu:27b` | GPU | ~4.3 | ~2.4 |
+| `orcasaq-2-cyber:27b` | CPU | ~5.4 | ~2.4–2.5 |
+| `qwen3.8-flash-next-uncensored:125b` | CPU | ~11 | ~4.7–5.9 |
+| `glm-5.3-flash-uncensored:320b` | CPU | ~2.7 | ~1.1 |
 
-Prompt processing dominates: a 4K-token prompt takes ~15 minutes on the 27B models. The router's prompt cache (`cache_ram`) makes follow-up turns cheap: only new tokens are processed, even when the client drops the model's reasoning from the history. On the GPU, short follow-ups of 9–32 tokens are slower than their length suggests (~1–2 tok/s, so a 23-token message takes ~21 s): ggml-vulkan runs them on its 32-wide matmul tile, which is slow on the Mali. Concurrent requests don't add much total throughput (CPU and GPU both top out at ~40 GB/s of memory bandwidth and are compute-bound), so each extra request roughly divides the speed. Models serve one request at a time (`parallel = 1` in `[defaults]`) and queue the rest; Flash-Next has two slots (`extra = { parallel = 2 }`), so two requests each get ~2.9 tok/s.
+Prompt processing dominates: a 4K-token prompt takes ~7 minutes on the 27B models. The router's prompt cache (`cache_ram`) makes follow-up turns cheap: only new tokens are processed, even when the client drops the model's reasoning from the history. A 23-token follow-up takes ~4 s on the CPU but ~20 s on the GPU, where ggml-vulkan runs batches of 9–32 tokens on its 32-wide matmul tile, which is slow on the Mali. Models serve one request at a time (`parallel = 1` in `[defaults]`) and queue the rest; Flash-Next has two slots (`extra = { parallel = 2 }`), so two requests each get ~3.5 tok/s.
+
+The CPU and the GPU share ~40 GB/s of memory bandwidth, so the GPU is only worth using for a second model. With a `-gpu` profile and a CPU model loaded side by side, both answer at once: the 27B on the GPU at ~2.1 tok/s and Flash-Next at ~3.5, against ~1.6 and ~1.4 with both on the CPU. Splitting one model between the two is slower than either alone (Flash-Next with experts on the CPU and the rest on the GPU: 5.3/2.7 tok/s).
 
 What made the difference:
 
+- **An explicit Arm target for the CPU backend.** llama.cpp's `GGML_NATIVE` probes the CPU's extensions with `-mcpu=native+<ext>`, which Bookworm's GCC 12 rejects for the O6's Cortex-A720, so every probe failed and the CPU kernels were built for plain armv8-a, without dot-product or int8 matmul instructions. The `build-llama` step now passes the extensions from `/proc/cpuinfo` (`GGML_CPU_ARM_ARCH=armv8.2-a+fp16+dotprod+i8mm+bf16`). Prompts got 1.4–3.7x faster (27B: 2.8 → 10.1 tok/s) and generation up to 20% faster.
+- **No weight repacking for mmap'd models.** llama.cpp copies the tensors it can repack for its int8 kernels out of the page cache into RAM. For Flash-Next that cost ~25% of its generation speed, so the large models set `no_repack = true`.
 - **glslc from shaderc.** Bookworm's `glslc` is too old for ggml-vulkan's int8 dot-product shaders, which the Mali supports. The `shaderc` step builds a current one.
 - **Mali environment.** The router unit sets `GGML_VK_DISABLE_COOPMAT=1` (the driver's cooperative-matrix path is ~4x slower than int8 dot-product) and `GGML_VK_FORCE_MMVQ=1` (~20% faster generation).
-- **64-token ubatches on the GPU.** ggml-vulkan sizes its matmul tile from the batch, and the 64-wide tile is the Mali's fastest. `ubatch_size = 64` speeds up 27B prompts by 13-19% (a 1.2K-token prompt takes 270 s instead of 316 s).
+- **GPU profiles: 64-token ubatches and one CPU thread.** ggml-vulkan sizes its matmul tile from the batch, and the 64-wide tile is the Mali's fastest (`ubatch_size = 64`, 13–19% faster prompts). With the default 12 threads, a GPU model's idle CPU threads slowed a CPU model running beside it by ~20%, so GPU profiles set `threads = 1`.
 - **Plain K-quants on the GPU.** IQ4_XS-heavy files (unsloth's UD quants, OrcaSAQ) are ~35% slower on the Mali.
 - **CPU for MoE.** Splitting experts (CPU) from the rest (GPU) is slower than running the whole model on the 8 big cores.
-- **12 threads for prompts.** CPU profiles generate on the 8 big cores, but OrcaSAQ and GLM process prompts on all 12 (`threads_batch = 12`; ~11% and ~6% faster). Flash-Next doesn't, because llama.cpp also uses those threads when its two slots generate together, which made each 24% slower.
-- **Not worth it:** MTP speculative decoding (net slower), f16 KV cache, larger batch sizes, more than 8 generation threads.
+- **12 threads for prompts.** CPU profiles generate on the 8 big cores, but single-slot ones process prompts on all 12 (`threads_batch = 12`; 6–16% faster). Flash-Next doesn't, because llama.cpp also uses those threads when its two slots generate together, which made each 24% slower.
+- **Not worth it:** MTP speculative decoding (net slower), f16 KV cache, larger batch sizes, more than 8 generation threads, SVE kernels (no faster than NEON on the A720's 128-bit SVE).
 
 ## Tests
 

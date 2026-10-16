@@ -30,6 +30,15 @@
 # llama-server refuses to load them, leaving router requests hanging.
 llama_cpp_ref = "latest"
 
+[router]
+# Models kept loaded at once; loading another unloads the least recently
+# used. Two lets a -gpu profile answer while a CPU model does (27B on the
+# GPU + Flash-Next: ~2.1 + ~3.5 tok/s at once), and switching back to a
+# loaded model keeps its prompt cache. An idle loaded model still holds
+# its RAM: GLM generates ~15% slower with a 27B loaded beside it. Set to
+# 1 to unload the previous model on every switch.
+models_max = 2
+
 [defaults]
 # llama.cpp replaced --mmap/--mlock with --load-mode (the old flags were
 # removed in ggml-org/llama.cpp#28334, and the router rejects unknown keys).
@@ -58,10 +67,20 @@ cache_ram = 8192
 # it (~18 h at ~4 tok/s), but with the prompt cache a conversation grows
 # a turn at a time, so there's no reason to cap it lower.
 #
+# These run on the CPU's 8 big cores, which with the int8 matmul kernels
+# (see hardware.arm_march) process 27B prompts at ~10 tok/s against the
+# Mali's ~4.4, and generate at ~2.25 tok/s against ~2.4. Short follow-ups
+# gain the most: a 23-token message takes 4 s instead of 21 s. Generation
+# runs at 2-2.5 tok/s, so thinking is capped at 1024 tokens (~7 min).
+#
+# The -gpu profiles run the same files on the Mali, for use beside a CPU
+# model: two models generating at once get ~5.6 tok/s between them with
+# the 27B on the GPU, against ~3.0 with both on the CPU. They keep one CPU
+# thread (threads = 1); with the default of 12, their idle threads took
+# cores from the CPU model and slowed it by ~20%.
+#
 # On the Mali, plain Q4_K/Q6_K files are much faster than mixes with IQ
-# types: IQ4_XS-heavy quants run ~35% slower on the GPU (and OrcaSAQ,
-# which is mostly IQ4_XS, is faster on the CPU). Generation runs at
-# 2-2.5 tok/s, so thinking is capped at 1024 tokens (~7 min).
+# types: IQ4_XS-heavy quants run ~35% slower on the GPU.
 #
 # GPU profiles process prompts in 64-token ubatches. ggml-vulkan picks its
 # matmul tile from the batch size, and on the Mali the 64-wide tile is the
@@ -81,8 +100,15 @@ dir = "qwen-3.8-27b-q4_k_m"
 [models.qwen3_8-27b.profiles.default]
 name = "qwen3.8:27b"
 ctx_size = 262144
+device = "none"
+gpu_layers = 0
+extra = { threads = 8, threads_batch = 12, reasoning_budget = 1024 }
+
+[models.qwen3_8-27b.profiles.gpu]
+name = "qwen3.8-gpu:27b"
+ctx_size = 262144
 gpu_layers = 999
-extra = { reasoning_budget = 1024, ubatch_size = 64 }
+extra = { threads = 1, reasoning_budget = 1024, ubatch_size = 64 }
 
 # Gated repo: needs an HF token for the llm user (see README).
 [models.qwen3_8-27b-uncensored]
@@ -93,15 +119,22 @@ dir = "qwen-3.8-27b-uncensored"
 [models.qwen3_8-27b-uncensored.profiles.default]
 name = "qwen3.8-uncensored:27b"
 ctx_size = 262144
+device = "none"
+gpu_layers = 0
+extra = { threads = 8, threads_batch = 12, reasoning_budget = 1024 }
+
+[models.qwen3_8-27b-uncensored.profiles.gpu]
+name = "qwen3.8-uncensored-gpu:27b"
+ctx_size = 262144
 gpu_layers = 999
-extra = { reasoning_budget = 1024, ubatch_size = 64 }
+extra = { threads = 1, reasoning_budget = 1024, ubatch_size = 64 }
 
 # ── OrcaSAQ 2 ───────────────────────────────────────────────────
 
 # Single-file mixed-precision quant (IQ4_XS/Q5_K/Q6_K) of the same
 # Qwen3.8-27B-Uncensored weights. Gated repo. The Mali's IQ4_XS kernels
-# are slow, so this runs on the CPU's 8 big cores instead. Prompts are
-# processed on all 12 cores (threads_batch), ~11% faster than on 8.
+# are slow, so it has no GPU profile. Prompts are processed on all 12
+# cores (threads_batch), ~11% faster than on 8.
 [models.orcasaq-2-cyber-27b]
 repo = "orcarouter/OrcaSAQ-2-Cyber-27B-Uncensored-GGUF"
 file = "OrcaSAQ-2-27B-Uncensored.gguf"
@@ -125,7 +158,11 @@ extra = { threads = 8, threads_batch = 12, reasoning_budget = 1024 }
 # llama.cpp also uses the batch threads when its two slots generate
 # together, which made each 24% slower. Every GB of RAM used elsewhere
 # is a GB of experts re-read from NVMe, so these keep context checkpoints
-# (recurrent-state snapshots, 32 per slot by default) few. Context runs
+# (recurrent-state snapshots, 32 per slot by default) few, and skip weight
+# repacking (no_repack): llama.cpp copies the tensors it can repack for
+# its int8 matmul kernels (Flash-Next's IQ4_NL experts, GLM's Q8_0) out of
+# the page cache into RAM, which cost Flash-Next ~25% of its generation
+# speed for ~20% faster prompts. Context runs
 # at the trained max: it costs ~5.5 GiB (Flash-Next, both slots) and
 # ~9 GiB (GLM, mostly compute buffers), with no measurable slowdown on
 # short requests.
@@ -151,7 +188,7 @@ name = "qwen3.8-flash-next-uncensored:125b"
 ctx_size = 524288
 device = "none"
 gpu_layers = 0
-extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048, parallel = 2 }
+extra = { load_mode = "mmap", no_repack = true, threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048, parallel = 2 }
 
 # orcarouter's own GLM-5.3-Flash-Uncensored GGUFs were converted with the
 # abandoned glm5next fork (ggml-org/llama.cpp#27754) and fail on mainline
@@ -169,4 +206,4 @@ name = "glm-5.3-flash-uncensored:320b"
 ctx_size = 1048576
 device = "none"
 gpu_layers = 0
-extra = { load_mode = "mmap", threads = 8, threads_batch = 12, ctx_checkpoints = 8, reasoning_budget = 512 }
+extra = { load_mode = "mmap", no_repack = true, threads = 8, threads_batch = 12, ctx_checkpoints = 8, reasoning_budget = 512 }
