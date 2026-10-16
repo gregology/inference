@@ -98,6 +98,15 @@ class TestRouterConfig(unittest.TestCase):
                     with self.subTest(profile=profile.name):
                         self.assertEqual(parser.getint(profile.name, "parallel"), profile.extra["parallel"])
 
+    def test_threads_batch_only_with_one_slot(self):
+        """llama.cpp uses batch threads whenever slots generate together; on the O6 the extra A520 cores slow that down."""
+        config = _load()
+        for model in config.models:
+            for profile in model.profiles:
+                if "threads_batch" in profile.extra:
+                    with self.subTest(profile=profile.name):
+                        self.assertEqual(profile.extra.get("parallel", config.defaults.parallel), 1)
+
     def test_prompt_cache_enabled(self):
         """Prompt processing is slow on the O6; the RAM prompt cache must stay on."""
         config = _load()
