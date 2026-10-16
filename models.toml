@@ -44,6 +44,10 @@ device = "Vulkan0"
 gpu_layers = "auto"
 ctx_size = 8192
 no_warmup = true
+# RAM prompt cache (MiB). Prompt processing runs at 2-8 tok/s on the O6, so
+# re-processing a conversation after switching away from it can take tens
+# of minutes; the cache restores it in seconds.
+cache_ram = 8192
 
 # ── Small / Medium models ────────────────────────────────────────
 #
@@ -52,18 +56,26 @@ no_warmup = true
 # ~18 KiB/token. 128K context is ~2.25 GiB of KV on top of ~16 GB of
 # weights. The native 256K would also fit, but prompt processing on the
 # Mali is far too slow to ever fill it.
+#
+# On the Mali, plain Q4_K/Q6_K files are much faster than mixes with IQ
+# types: IQ4_XS-heavy quants run ~35% slower on the GPU (and OrcaSAQ,
+# which is mostly IQ4_XS, is faster on the CPU). Generation runs at
+# 2-2.5 tok/s, so thinking is capped at 1024 tokens (~7 min).
 
 # ── Qwen 3.8 ────────────────────────────────────────────────────
 
+# Not unsloth: its UD-Q4_K_M mixes in ~5 GB of IQ4_XS. This file is plain
+# Q4_K/Q6_K, the same tensor mix as the uncensored Q4_K_M below.
 [models.qwen3_8-27b]
-repo = "unsloth/Qwen3.8-27B-GGUF"
-file = "Qwen3.8-27B-UD-Q4_K_M.gguf"
-dir = "qwen-3.8-27b"
+repo = "lmstudio-community/Qwen3.8-27B-GGUF"
+file = "Qwen3.8-27B-Q4_K_M.gguf"
+dir = "qwen-3.8-27b-q4_k_m"
 
 [models.qwen3_8-27b.profiles.default]
 name = "qwen3.8:27b"
 ctx_size = 65536
 gpu_layers = 999
+extra = { reasoning_budget = 1024 }
 
 # Gated repo: needs an HF token for the llm user (see README).
 [models.qwen3_8-27b-uncensored]
@@ -75,11 +87,13 @@ dir = "qwen-3.8-27b-uncensored"
 name = "qwen3.8-uncensored:27b"
 ctx_size = 131072
 gpu_layers = 999
+extra = { reasoning_budget = 1024 }
 
 # ── OrcaSAQ 2 ───────────────────────────────────────────────────
 
 # Single-file mixed-precision quant (IQ4_XS/Q5_K/Q6_K) of the same
-# Qwen3.8-27B-Uncensored weights. Gated repo.
+# Qwen3.8-27B-Uncensored weights. Gated repo. The Mali's IQ4_XS kernels
+# are slow, so this runs on the CPU's 8 big cores instead.
 [models.orcasaq-2-cyber-27b]
 repo = "orcarouter/OrcaSAQ-2-Cyber-27B-Uncensored-GGUF"
 file = "OrcaSAQ-2-27B-Uncensored.gguf"
@@ -88,15 +102,21 @@ dir = "orcasaq-2-cyber-27b-uncensored"
 [models.orcasaq-2-cyber-27b.profiles.default]
 name = "orcasaq-2-cyber:27b"
 ctx_size = 131072
-gpu_layers = 999
+device = "none"
+gpu_layers = 0
+extra = { threads = 8, reasoning_budget = 1024 }
 
 # ── Large models (exceed 64GB, rely on mmap) ─────────────────────
 #
-# Routed experts stay on the CPU (cpu_moe) in mmap'd, evictable page
-# cache; everything else is offloaded to the GPU. Every GB of RAM used
-# elsewhere is a GB of experts re-read from NVMe, so these keep context
-# and context checkpoints (recurrent-state snapshots, 32 per slot by
-# default) small.
+# These run entirely on the CPU, with the weights in mmap'd, evictable
+# page cache. Splitting them (experts on the CPU, the rest on the GPU)
+# was 1.5-2.5x slower: the Mali's kernels are slow and every layer hands
+# off between devices. Use 8 threads: the 4 little A520 cores hold the
+# big ones back. Every GB of RAM used elsewhere is a GB of experts
+# re-read from NVMe, so these keep context and context checkpoints
+# (recurrent-state snapshots, 32 per slot by default) small. Thinking
+# budgets are sized for ~7-8 minutes at each model's generation speed
+# (Flash-Next ~5 tok/s, GLM ~1 tok/s).
 
 # IQ4_XS over Q4_K_M: 65 GB of routed experts vs 81 GB (K-quants fall
 # back to Q8_0/Q5_0 on the 640-wide ffn_down), so far more of the expert
@@ -111,8 +131,9 @@ dir = "qwen-3.8-flash-next-uncensored"
 [models.qwen3_8-flash-next-uncensored.profiles.default]
 name = "qwen3.8-flash-next-uncensored:125b"
 ctx_size = 65536
-gpu_layers = 999
-extra = { load_mode = "mmap", cpu_moe = true, threads = 8, ctx_checkpoints = 8 }
+device = "none"
+gpu_layers = 0
+extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048 }
 
 # orcarouter's own GLM-5.3-Flash-Uncensored GGUFs were converted with the
 # abandoned glm5next fork (ggml-org/llama.cpp#27754) and fail on mainline
@@ -128,5 +149,6 @@ dir = "glm-5.3-flash-uncensored"
 [models.glm-5_3-flash-uncensored.profiles.default]
 name = "glm-5.3-flash-uncensored:320b"
 ctx_size = 32768
-gpu_layers = 999
-extra = { load_mode = "mmap", cpu_moe = true, threads = 8, ctx_checkpoints = 8 }
+device = "none"
+gpu_layers = 0
+extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 512 }

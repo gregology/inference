@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from ..step import Step
+from .shaderc import GLSLC_PATH, SHADERC_TAG
 
 LLAMA_DIR = Path("/srv/llm/src/llama.cpp")
 BUILD_DIR = LLAMA_DIR / "build-vulkan"
@@ -25,11 +26,24 @@ class BuildLlamaStep(Step):
     def _desired_ref(self) -> str:
         """Return the full commit hash for the desired build."""
         ref = self.config.llama_cpp_ref
+        # Run git as llm: as root, git's safe.directory check rejects the
+        # llm-owned checkout and rev-parse prints nothing.
         if ref == "latest":
             # Resolve origin's default branch.
-            return self.sh_output(f"git -C {LLAMA_DIR} rev-parse origin/{self._default_branch()}")
+            return self.sh_output(
+                f"sudo -u llm git -C {LLAMA_DIR} rev-parse origin/{self._default_branch()}"
+            )
         # Pinned ref — resolve to full hash.
-        return self.sh_output(f"git -C {LLAMA_DIR} rev-parse {ref}")
+        return self.sh_output(f"sudo -u llm git -C {LLAMA_DIR} rev-parse {ref}")
+
+    @staticmethod
+    def _build_id(commit: str) -> str:
+        """Identify a build by commit and glslc version.
+
+        Shaders compiled by an older glslc silently lack the int8
+        dot-product paths, so a glslc upgrade must trigger a rebuild.
+        """
+        return f"{commit} shaderc-{SHADERC_TAG}"
 
     def check(self) -> bool:
         if not SERVER_BIN.exists():
@@ -39,9 +53,9 @@ class BuildLlamaStep(Step):
         self.sh_ok(f"sudo -u llm git -C {LLAMA_DIR} fetch --quiet")
         built = BUILD_HASH.read_text().strip() if BUILD_HASH.exists() else ""
         desired = self._desired_ref()
-        if not built or not desired or built != desired:
+        if not desired:
             return False
-        return True
+        return built == self._build_id(desired)
 
     def run(self) -> None:
         if not LLAMA_DIR.exists():
@@ -76,13 +90,14 @@ class BuildLlamaStep(Step):
             f"-DCMAKE_BUILD_TYPE=Release "
             f"-DLLAMA_CURL=OFF "
             f"-DGGML_VULKAN=ON "
+            f"-DVulkan_GLSLC_EXECUTABLE={GLSLC_PATH} "
             f"&& cmake --build {BUILD_DIR} -j {nproc}'"
         )
 
-        # Record which commit we built so check() can compare next run.
-        head = self.sh_output(f"git -C {LLAMA_DIR} rev-parse HEAD")
+        # Record what we built so check() can compare next run.
+        head = self.sh_output(f"sudo -u llm git -C {LLAMA_DIR} rev-parse HEAD")
         if head:
-            BUILD_HASH.write_text(head + "\n")
+            BUILD_HASH.write_text(self._build_id(head) + "\n")
 
         # Restart the service if it's running so it picks up the new binary.
         if self.sh_ok("systemctl is-active --quiet llama-router.service"):
