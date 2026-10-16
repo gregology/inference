@@ -55,7 +55,7 @@ file = "Qwen3.8-27B-Q4_K_M.gguf"
 
 [models.qwen3_8-27b.profiles.default]
 name = "qwen3.8:27b"
-ctx_size = 65536
+ctx_size = 262144
 gpu_layers = 999
 extra = { reasoning_budget = 1024 }
 ```
@@ -72,10 +72,10 @@ large = true
 
 [models.qwen3_8-flash-next-uncensored.profiles.default]
 name = "qwen3.8-flash-next-uncensored:125b"
-ctx_size = 65536
+ctx_size = 524288
 device = "none"
 gpu_layers = 0
-extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048 }
+extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048, parallel = 2 }
 ```
 
 ### Gated repos

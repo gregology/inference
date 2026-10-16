@@ -53,9 +53,10 @@ cache_ram = 8192
 #
 # Dense hybrid-attention models: only 16 of 64 layers keep a KV cache
 # (the rest are Gated DeltaNet with fixed-size state), so q4_0 KV costs
-# ~18 KiB/token. 128K context is ~2.25 GiB of KV on top of ~16 GB of
-# weights. The native 256K would also fit, but prompt processing on the
-# Mali is far too slow to ever fill it.
+# ~18 KiB/token. The trained max of 256K is ~4.5 GiB of KV (~5.3 GiB
+# with compute buffers) on top of ~16 GB of weights. One prompt can't fill
+# it (~18 h at ~4 tok/s), but with the prompt cache a conversation grows
+# a turn at a time, so there's no reason to cap it lower.
 #
 # On the Mali, plain Q4_K/Q6_K files are much faster than mixes with IQ
 # types: IQ4_XS-heavy quants run ~35% slower on the GPU (and OrcaSAQ,
@@ -73,7 +74,7 @@ dir = "qwen-3.8-27b-q4_k_m"
 
 [models.qwen3_8-27b.profiles.default]
 name = "qwen3.8:27b"
-ctx_size = 65536
+ctx_size = 262144
 gpu_layers = 999
 extra = { reasoning_budget = 1024 }
 
@@ -85,7 +86,7 @@ dir = "qwen-3.8-27b-uncensored"
 
 [models.qwen3_8-27b-uncensored.profiles.default]
 name = "qwen3.8-uncensored:27b"
-ctx_size = 131072
+ctx_size = 262144
 gpu_layers = 999
 extra = { reasoning_budget = 1024 }
 
@@ -101,7 +102,7 @@ dir = "orcasaq-2-cyber-27b-uncensored"
 
 [models.orcasaq-2-cyber-27b.profiles.default]
 name = "orcasaq-2-cyber:27b"
-ctx_size = 131072
+ctx_size = 262144
 device = "none"
 gpu_layers = 0
 extra = { threads = 8, reasoning_budget = 1024 }
@@ -113,10 +114,12 @@ extra = { threads = 8, reasoning_budget = 1024 }
 # was 1.5-2.5x slower: the Mali's kernels are slow and every layer hands
 # off between devices. Use 8 threads: the 4 little A520 cores hold the
 # big ones back. Every GB of RAM used elsewhere is a GB of experts
-# re-read from NVMe, so these keep context and context checkpoints
-# (recurrent-state snapshots, 32 per slot by default) small. Thinking
-# budgets are sized for ~7-8 minutes at each model's generation speed
-# (Flash-Next ~5 tok/s, GLM ~1 tok/s).
+# re-read from NVMe, so these keep context checkpoints (recurrent-state
+# snapshots, 32 per slot by default) few. Context runs at the trained
+# max: it costs ~5.5 GiB (Flash-Next, both slots) and ~9 GiB (GLM, mostly
+# compute buffers), with no measurable slowdown on short requests.
+# Thinking budgets are sized for ~7-8 minutes at each model's generation
+# speed (Flash-Next ~5 tok/s, GLM ~1 tok/s).
 
 # IQ4_XS over Q4_K_M: 65 GB of routed experts vs 81 GB (K-quants fall
 # back to Q8_0/Q5_0 on the 640-wide ffn_down), so far more of the expert
@@ -124,8 +127,8 @@ extra = { threads = 8, reasoning_budget = 1024 }
 # rows per token. KV is ~7 KiB/token. Gated repo.
 #
 # Two slots: each request gets ~2.9 tok/s instead of one waiting (total
-# ~5.8 vs 5.0 tok/s). ctx_size is split between slots, so 131072 keeps
-# 64K per request.
+# ~5.8 vs 5.0 tok/s). ctx_size is split between slots, so 524288 gives
+# each request the trained 256K.
 [models.qwen3_8-flash-next-uncensored]
 repo = "orcarouter/Qwen3.8-Flash-Next-Uncensored-GGUF"
 include = "Qwen3.8-Flash-Next-Uncensored-IQ4_XS-*.gguf"
@@ -134,7 +137,7 @@ dir = "qwen-3.8-flash-next-uncensored"
 
 [models.qwen3_8-flash-next-uncensored.profiles.default]
 name = "qwen3.8-flash-next-uncensored:125b"
-ctx_size = 131072
+ctx_size = 524288
 device = "none"
 gpu_layers = 0
 extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048, parallel = 2 }
@@ -152,7 +155,7 @@ dir = "glm-5.3-flash-uncensored"
 
 [models.glm-5_3-flash-uncensored.profiles.default]
 name = "glm-5.3-flash-uncensored:320b"
-ctx_size = 32768
+ctx_size = 1048576
 device = "none"
 gpu_layers = 0
 extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 512 }
