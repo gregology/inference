@@ -107,6 +107,24 @@ class TestRouterConfig(unittest.TestCase):
                     with self.subTest(profile=profile.name):
                         self.assertEqual(profile.extra.get("parallel", config.defaults.parallel), 1)
 
+    def test_gpu_profiles_use_one_cpu_thread(self):
+        """Idle CPU threads of a GPU model take cores from a CPU model running beside it."""
+        config = _load()
+        for model in config.models:
+            for profile in model.profiles:
+                if (profile.device or config.defaults.device) != "none":
+                    with self.subTest(profile=profile.name):
+                        self.assertEqual(profile.extra.get("threads"), 1)
+
+    def test_mmap_profiles_skip_repack(self):
+        """Repacked weights move out of the page cache into RAM, starving mmap'd experts."""
+        config = _load()
+        for model in config.models:
+            for profile in model.profiles:
+                if profile.extra.get("load_mode") == "mmap":
+                    with self.subTest(profile=profile.name):
+                        self.assertIs(profile.extra.get("no_repack"), True)
+
     def test_prompt_cache_enabled(self):
         """Prompt processing is slow on the O6; the RAM prompt cache must stay on."""
         config = _load()

@@ -37,13 +37,28 @@ class BuildLlamaStep(Step):
         return self.sh_output(f"sudo -u llm git -C {LLAMA_DIR} rev-parse {ref}")
 
     @staticmethod
-    def _build_id(commit: str) -> str:
-        """Identify a build by commit and glslc version.
+    def _build_id(commit: str, cpu_arch: str | None = None) -> str:
+        """Identify a build by commit, glslc version and CPU target.
 
         Shaders compiled by an older glslc silently lack the int8
-        dot-product paths, so a glslc upgrade must trigger a rebuild.
+        dot-product paths, so a glslc upgrade must trigger a rebuild, and
+        so must a change to the CPU backend's target.
         """
-        return f"{commit} shaderc-{SHADERC_TAG}"
+        build_id = f"{commit} shaderc-{SHADERC_TAG}"
+        if cpu_arch:
+            build_id += f" cpu-{cpu_arch}"
+        return build_id
+
+    def _cpu_flags(self) -> str:
+        """CMake flags for the CPU backend's target.
+
+        On Arm, name the extensions explicitly: GGML_NATIVE's probes fail
+        under GCC 12 and build plain armv8-a kernels (see hardware.arm_march),
+        which made CPU prompts 1.4-3.7x slower.
+        """
+        if not self.hw.cpu_arch:
+            return ""
+        return f"-DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH={self.hw.cpu_arch} "
 
     def check(self) -> bool:
         if not SERVER_BIN.exists():
@@ -55,7 +70,7 @@ class BuildLlamaStep(Step):
         desired = self._desired_ref()
         if not desired:
             return False
-        return built == self._build_id(desired)
+        return built == self._build_id(desired, self.hw.cpu_arch)
 
     def run(self) -> None:
         if not LLAMA_DIR.exists():
@@ -90,6 +105,7 @@ class BuildLlamaStep(Step):
             f"-DCMAKE_BUILD_TYPE=Release "
             f"-DLLAMA_CURL=OFF "
             f"-DGGML_VULKAN=ON "
+            f"{self._cpu_flags()}"
             f"-DVulkan_GLSLC_EXECUTABLE={GLSLC_PATH} "
             f"&& cmake --build {BUILD_DIR} -j {nproc}'"
         )
@@ -97,7 +113,7 @@ class BuildLlamaStep(Step):
         # Record what we built so check() can compare next run.
         head = self.sh_output(f"sudo -u llm git -C {LLAMA_DIR} rev-parse HEAD")
         if head:
-            BUILD_HASH.write_text(self._build_id(head) + "\n")
+            BUILD_HASH.write_text(self._build_id(head, self.hw.cpu_arch) + "\n")
 
         # Restart the service if it's running so it picks up the new binary.
         if self.sh_ok("systemctl is-active --quiet llama-router.service"):

@@ -8,23 +8,26 @@ context:
       installer/steps/router_config.py (generates models.ini) read from it.
       No model-specific data should exist in Python code.
 
-      Prefer Q4_K_M quantizations. For GPU-run models, use plain K-quant
+      Prefer Q4_K_M quantizations. Run models on the CPU by default
+      (`device = "none"`, `gpu_layers = 0`, `threads = 8`,
+      `threads_batch = 12`). A dense model can also get a `-gpu` profile for
+      running beside a CPU model (`gpu_layers = 999`,
+      `extra = { threads = 1, ubatch_size = 64 }`); those need plain K-quant
       files (Q4_K/Q6_K tensors only): IQ4_XS-heavy quants, including
       unsloth's UD-* files, run ~35% slower on the O6's Mali. Check
       https://huggingface.co/unsloth first, then sources such as
-      lmstudio-community. Run IQ-heavy files on the CPU instead
-      (`device = "none"`, `gpu_layers = 0`, `threads = 8`,
-      `threads_batch = 12`).
+      lmstudio-community.
 
       For multi-shard models that exceed 64GB RAM, use `include` instead of
       `file`, set `large = true`, and run the profile on the CPU:
       `device = "none"`, `gpu_layers = 0`,
-      `extra = { load_mode = "mmap", threads = 8, threads_batch = 12 }`.
+      `extra = { load_mode = "mmap", no_repack = true, threads = 8, threads_batch = 12 }`.
       Leave out threads_batch when the profile has more than one slot.
 
       GPU profiles on the Mali set `ubatch_size = 64` (ggml-vulkan's fastest
-      matmul tile there); CPU profiles keep the default, where it makes no
-      difference.
+      matmul tile there) and `threads = 1` (more idle threads slow a CPU
+      model running beside them); CPU profiles keep the default ubatch,
+      where it makes no difference.
 
       Router keys must be valid llama-server options: the router refuses to
       start on unknown keys (e.g. the removed `mmap`/`mlock` flags).
@@ -73,13 +76,47 @@ decisions:
       (cpu_moe) was 1.5-2.5x slower than running the whole model on the CPU:
       the Mali's kernels are slow and each layer hands off between devices.
       Flash-Next went from 1.0/1.9 to 7.9/5.0 tok/s, GLM-5.3 from 0.63 to
-      1.05 tok/s generation. Generate on 8 threads; 12 pulls in the slow
-      A520 cores. Prompt processing is 6-16% faster on 12 (threads_batch),
-      but only set it on single-slot profiles: llama.cpp uses batch threads
-      whenever slots generate together, which slowed Flash-Next's two slots
-      by 24%.
+      1.05 tok/s generation; with the int8 CPU kernels, cpu_moe gave
+      Flash-Next 5.3/2.7 against 13.6/5.2 CPU-only. Generate on 8 threads;
+      12 pulls in the slow A520 cores. Prompt processing is 6-16% faster on
+      12 (threads_batch), but only set it on single-slot profiles: llama.cpp
+      uses batch threads whenever slots generate together, which slowed
+      Flash-Next's two slots by 24%. Set no_repack: repacked tensors move
+      from the page cache into RAM, which cost Flash-Next ~25% of its
+      generation speed (GLM: no difference).
     revisit_when: "ggml-vulkan's Mali matmul kernels or the Mali driver improve"
     match: ["models.toml"]
+
+  - decision: "Dense models run on the CPU; the GPU serves a second model"
+    rationale: |
+      With the int8 CPU kernels (see the explicit Arm target below), the
+      27B Q4_K_M processes a 1.2K-token prompt at 9.6 tok/s on the CPU
+      against 4.3 on the Mali, answers a 23-token follow-up in 4 s against
+      20 s, and generates at 2.2 against 2.4 tok/s. Splitting one model
+      between the two runs them one after the other and is slower than
+      either. The GPU's use is concurrency: the CPU and GPU share ~40 GB/s
+      of memory bandwidth but not cores, so the 27B on the GPU and
+      Flash-Next on the CPU generate at ~2.1 + ~3.5 tok/s at once, against
+      ~1.6 + ~1.4 with both on the CPU. Hence the -gpu profiles and
+      [router] models_max = 2; an idle loaded model still holds its RAM
+      (GLM generates ~15% slower with a 27B loaded beside it).
+    revisit_when: "ggml-vulkan's Mali matmul kernels or the Mali driver improve"
+    match: ["models.toml"]
+
+  - decision: "Explicit Arm target for llama.cpp's CPU backend"
+    rationale: |
+      GGML_NATIVE probes each Arm extension with -mcpu=native+<ext>. GCC 12
+      (Bookworm) doesn't know the O6's Cortex-A720 and rejects that, so all
+      probes failed silently and the CPU backend was built for armv8-a, with
+      no dot-product, fp16 or int8 matmul kernels (and no repacked K-quant
+      kernels, which need them). hardware.arm_march builds the -march value
+      from /proc/cpuinfo and build-llama passes it as GGML_CPU_ARM_ARCH with
+      GGML_NATIVE=OFF, as upstream recommends (ggml-org/llama.cpp#28080).
+      Prompts got 1.4-3.7x faster, generation up to 20%. SVE is left out:
+      its kernels were no faster than NEON on the A720's 128-bit SVE. The
+      target is part of the build id, so changing it triggers a rebuild.
+    revisit_when: "Bookworm is replaced by a release with GCC 14+"
+    match: ["installer/hardware.py", "installer/steps/build_llama.py"]
 
   - decision: "models.toml as single source of truth"
     rationale: |

@@ -23,7 +23,7 @@ Environment=GGML_VK_FORCE_MMVQ=1
 # Only router-level flags go on the command line: the router overlays its
 # own flags on every model's preset, so a flag here (e.g. --parallel) would
 # override the per-model values in models.ini.
-def render_unit(host: str, port: int, mali: bool = False) -> str:
+def render_unit(host: str, port: int, mali: bool = False, models_max: int = 1) -> str:
     gpu_env = MALI_ENV if mali else ""
     return f"""\
 [Unit]
@@ -42,7 +42,7 @@ Environment=HF_HOME=/srv/llm/cache/huggingface
 ExecStart={SERVER_BIN} \\
   --host {host} --port {port} \\
   --models-preset {MODELS_INI} \\
-  --models-max 1 \\
+  --models-max {models_max} \\
   --timeout 1800
 
 Restart=on-failure
@@ -62,7 +62,10 @@ class SystemdStep(Step):
     description = "Install and enable llama-router service"
 
     def _unit(self) -> str:
-        return render_unit(self.config.host, self.config.port, mali=self.hw.has_mali)
+        return render_unit(
+            self.config.host, self.config.port,
+            mali=self.hw.has_mali, models_max=self.config.models_max,
+        )
 
     def _unit_current(self) -> bool:
         return SERVICE_PATH.exists() and SERVICE_PATH.read_text() == self._unit()
