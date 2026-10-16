@@ -144,6 +144,56 @@ What made the difference:
 - **12 threads for prompts.** CPU profiles generate on the 8 big cores, but single-slot ones process prompts on all 12 (`threads_batch = 12`; 6–16% faster). Flash-Next doesn't, because llama.cpp also uses those threads when its two slots generate together, which made each 24% slower.
 - **Not worth it:** MTP speculative decoding (net slower), f16 KV cache, larger batch sizes, more than 8 generation threads, SVE kernels (no faster than NEON on the A720's 128-bit SVE).
 
+### Two models at once
+
+Real-world runs on the production router (llama.cpp 7182ef71, `models_max = 2`) with `qwen3.8-flash-next-uncensored:125b` (CPU) and `qwen3.8-uncensored-gpu:27b` (GPU) both loaded. The requests in each row start together. Each one asks for a 256-token answer with thinking off and has its own text, so nothing comes from the prompt cache. In the "only" rows the other model is loaded but idle. Each cell gives the speed and the elapsed time: prompt speed and the wait for the first token, then answer speed and the time until the answer is complete.
+
+Chat question (~40-token prompt):
+
+| Running at once | Flash-Next: first token | Flash-Next: answer | 27B GPU: first token | 27B GPU: answer |
+|---|---|---|---|---|
+| Flash-Next only | 8 s | 5.2 tok/s, done in 57 s | | |
+| 27B only | | | 15 s | 2.4 tok/s, 120 s |
+| 1 Flash-Next + 1 27B | 10 s | 3.5 tok/s, 83 s | 16 s | 1.9 tok/s, 150 s |
+| 2 Flash-Next + 1 27B | 15 s | 1.9 tok/s each, 148 s | 16 s | 1.7 tok/s, 168 s |
+
+Document (1.1–1.4K-token prompt):
+
+| Running at once | Flash-Next: prompt | Flash-Next: answer | 27B GPU: prompt | 27B GPU: answer |
+|---|---|---|---|---|
+| Flash-Next only | 8.1 tok/s, first token at 2.2 min | 4.3 tok/s, done at 3.2 min | | |
+| 27B only | | | 4.4 tok/s, 4.5 min | 2.3 tok/s, 6.3 min |
+| 1 Flash-Next + 1 27B | 7.5 tok/s, 3.0 min | 3.6 tok/s, 4.2 min | 4.4 tok/s, 4.1 min | 2.3 tok/s, 6.0 min |
+| 2 Flash-Next + 1 27B | 3.5–3.9 tok/s each, 5.3 min | 1.9 tok/s each, 7.6 min | 4.3 tok/s, 5.5 min | 1.7 tok/s, 8.0 min |
+
+Long document (4.1–5.1K-token prompt):
+
+| Running at once | Flash-Next: prompt | Flash-Next: answer | 27B GPU: prompt | 27B GPU: answer |
+|---|---|---|---|---|
+| Flash-Next only | 7.5 tok/s, first token at 9.5 min | 4.0 tok/s, done at 10.6 min | | |
+| 27B only | | | 4.3 tok/s, 19.1 min | 2.0 tok/s, 21.2 min |
+| 1 Flash-Next + 1 27B | 7.4 tok/s, 11.6 min | 3.3 tok/s, 12.9 min | 4.2 tok/s, 17.6 min | 2.1 tok/s, 19.6 min |
+| 2 Flash-Next + 1 27B | 4.1–6.1 tok/s each, 19.3–20.5 min | 1.3–2.1 tok/s, 22.6 min | 4.3 tok/s, 16.9 min | 1.8 tok/s, 19.3 min |
+
+A long document (~5.3K tokens) beside chats:
+
+| Running at once | Request | First token | Answer, done |
+|---|---|---|---|
+| Document on the 27B GPU, two chats on Flash-Next | 27B document | 20.8 min | 2.0 tok/s, 22.9 min |
+| | each Flash-Next chat | 20 s | 2.0 tok/s, 2.5 min |
+| Document on Flash-Next, a chat on each model | Flash-Next document | 12.4 min | 2.0 tok/s, 14.5 min |
+| | Flash-Next chat | 9.3 min | 0.8 tok/s, 14.5 min |
+| | 27B GPU chat | 15 s | 2.1 tok/s, 2.3 min |
+
+What this means in practice:
+
+- **Running requests together beats queueing them.** Three chats at once (two on Flash-Next, one on the 27B) were all done in 2.8 minutes, against ~3.9 minutes one after another. Three long documents were done in 22.6 minutes, against ~42.
+- **The GPU 27B processes documents at the same speed whatever Flash-Next is doing** (4.2–4.4 tok/s in every document run). Its answers slow from 2.0–2.4 to 1.7–1.9 tok/s while Flash-Next is generating too.
+- **Flash-Next answers about a third slower while the 27B generates** (5.2 → 3.5 tok/s), and at ~1.9 tok/s per request when both of its slots are busy too.
+- **Keeping the 27B loaded slows Flash-Next by ~25%, even while the 27B is idle.** Its ~22 GB come out of the page cache that holds Flash-Next's experts. With the 27B unloaded, 1.1–1.3K-token documents ran on Flash-Next at 10.1–11.2 tok/s prompt and 5.7–5.8 tok/s answer, against 8.1 and 4.3 with it loaded. Unload the GPU model when you're done with it (`POST /models/unload`), or set `models_max = 1` if you rarely run two models at once.
+- **A long document on Flash-Next blocks its other slot.** A chat sent to Flash-Next during a 5.3K-token document waited 9.3 minutes for its first token, while a chat sent to the GPU 27B at the same moment answered in 15 s. Send chats to the model that isn't busy with a long document.
+- **A long document on the GPU 27B doesn't block Flash-Next chats** (first token in 20 s), though it slows their answers to ~2 tok/s.
+
 ## Tests
 
 ```bash
