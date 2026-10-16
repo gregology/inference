@@ -111,21 +111,22 @@ The router loads models on demand. With `--models-max 1`, requesting a different
 
 ## Performance on the O6
 
-Measured with llama.cpp 620d2225c and Mali driver r53p0 (tokens/s; prompt measured on 512–2048-token prompts, generation at short context):
+Measured through the router with llama.cpp f12aaa344 and Mali driver r53p0 (tokens/s; prompt measured on a ~1.2K-token prompt, generation at short context):
 
 | Profile | Runs on | Prompt | Generation |
 |---|---|---|---|
-| `qwen3.8:27b`, `qwen3.8-uncensored:27b` | GPU | ~3.9 | ~2.4 |
-| `orcasaq-2-cyber:27b` | CPU | ~2.5 | ~2.1 |
-| `qwen3.8-flash-next-uncensored:125b` | CPU | ~7–8 | ~5.0 |
-| `glm-5.3-flash-uncensored:320b` | CPU | ~2 | ~1.0 |
+| `qwen3.8:27b`, `qwen3.8-uncensored:27b` | GPU | ~4.4 | ~2.4 |
+| `orcasaq-2-cyber:27b` | CPU | ~2.7 | ~2.1 |
+| `qwen3.8-flash-next-uncensored:125b` | CPU | ~7–8 | ~4.5–5 |
+| `glm-5.3-flash-uncensored:320b` | CPU | ~2 | ~1.1 |
 
-Prompt processing dominates: a 4K-token prompt takes ~19 minutes on the 27B models. The router's prompt cache (`cache_ram`) makes follow-up turns cheap: only new tokens are processed. Concurrent requests don't add much total throughput (CPU and GPU both top out at ~40 GB/s of memory bandwidth and are compute-bound), so each extra request roughly divides the speed. Models serve one request at a time (`parallel = 1` in `[defaults]`) and queue the rest; Flash-Next has two slots (`extra = { parallel = 2 }`), so two requests each get ~2.9 tok/s.
+Prompt processing dominates: a 4K-token prompt takes ~15 minutes on the 27B models. The router's prompt cache (`cache_ram`) makes follow-up turns cheap: only new tokens are processed, even when the client drops the model's reasoning from the history. On the GPU, short follow-ups of 9–32 tokens are slower than their length suggests (~1–2 tok/s, so a 23-token message takes ~21 s): ggml-vulkan runs them on its 32-wide matmul tile, which is slow on the Mali. Concurrent requests don't add much total throughput (CPU and GPU both top out at ~40 GB/s of memory bandwidth and are compute-bound), so each extra request roughly divides the speed. Models serve one request at a time (`parallel = 1` in `[defaults]`) and queue the rest; Flash-Next has two slots (`extra = { parallel = 2 }`), so two requests each get ~2.9 tok/s.
 
 What made the difference:
 
 - **glslc from shaderc.** Bookworm's `glslc` is too old for ggml-vulkan's int8 dot-product shaders, which the Mali supports. The `shaderc` step builds a current one.
 - **Mali environment.** The router unit sets `GGML_VK_DISABLE_COOPMAT=1` (the driver's cooperative-matrix path is ~4x slower than int8 dot-product) and `GGML_VK_FORCE_MMVQ=1` (~20% faster generation).
+- **64-token ubatches on the GPU.** ggml-vulkan sizes its matmul tile from the batch, and the 64-wide tile is the Mali's fastest. `ubatch_size = 64` speeds up 27B prompts by 13-19% (a 1.2K-token prompt takes 270 s instead of 316 s).
 - **Plain K-quants on the GPU.** IQ4_XS-heavy files (unsloth's UD quants, OrcaSAQ) are ~35% slower on the Mali.
 - **CPU for MoE.** Splitting experts (CPU) from the rest (GPU) is slower than running the whole model on the 8 big cores.
 - **12 threads for prompts.** CPU profiles generate on the 8 big cores, but OrcaSAQ and GLM process prompts on all 12 (`threads_batch = 12`; ~11% and ~6% faster). Flash-Next doesn't, because llama.cpp also uses those threads when its two slots generate together, which made each 24% slower.

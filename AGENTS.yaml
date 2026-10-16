@@ -22,6 +22,10 @@ context:
       `extra = { load_mode = "mmap", threads = 8, threads_batch = 12 }`.
       Leave out threads_batch when the profile has more than one slot.
 
+      GPU profiles on the Mali set `ubatch_size = 64` (ggml-vulkan's fastest
+      matmul tile there); CPU profiles keep the default, where it makes no
+      difference.
+
       Router keys must be valid llama-server options: the router refuses to
       start on unknown keys (e.g. the removed `mmap`/`mlock` flags).
 
