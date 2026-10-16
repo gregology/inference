@@ -122,6 +122,10 @@ extra = { threads = 8, reasoning_budget = 1024 }
 # back to Q8_0/Q5_0 on the 640-wide ffn_down), so far more of the expert
 # set stays resident in RAM. The 29 GB PLE n-gram table is read a few
 # rows per token. KV is ~7 KiB/token. Gated repo.
+#
+# Two slots: each request gets ~2.9 tok/s instead of one waiting (total
+# ~5.8 vs 5.0 tok/s). ctx_size is split between slots, so 131072 keeps
+# 64K per request.
 [models.qwen3_8-flash-next-uncensored]
 repo = "orcarouter/Qwen3.8-Flash-Next-Uncensored-GGUF"
 include = "Qwen3.8-Flash-Next-Uncensored-IQ4_XS-*.gguf"
@@ -130,10 +134,10 @@ dir = "qwen-3.8-flash-next-uncensored"
 
 [models.qwen3_8-flash-next-uncensored.profiles.default]
 name = "qwen3.8-flash-next-uncensored:125b"
-ctx_size = 65536
+ctx_size = 131072
 device = "none"
 gpu_layers = 0
-extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048 }
+extra = { load_mode = "mmap", threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048, parallel = 2 }
 
 # orcarouter's own GLM-5.3-Flash-Uncensored GGUFs were converted with the
 # abandoned glm5next fork (ggml-org/llama.cpp#27754) and fail on mainline

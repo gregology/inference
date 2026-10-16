@@ -18,6 +18,11 @@ class TestRenderUnit(unittest.TestCase):
         unit = render_unit("0.0.0.0", 8000)
         self.assertNotIn("GGML_VK_", unit)
 
+    def test_no_per_model_flags(self):
+        """Router flags override every preset; --parallel here would mask models.ini."""
+        from installer.steps.systemd import render_unit
+        self.assertNotIn("--parallel", render_unit("0.0.0.0", 8000, mali=True))
+
     def test_env_precedes_exec(self):
         from installer.steps.systemd import render_unit
         unit = render_unit("127.0.0.1", 9000, mali=True)

@@ -88,6 +88,16 @@ class TestRouterConfig(unittest.TestCase):
                 with self.subTest(profile=profile.name):
                     self.assertEqual(parser.get(profile.name, "alias"), profile.name)
 
+    def test_profile_parallel_overrides_default(self):
+        """A per-profile parallel lands in that profile's section, after the [*] default."""
+        config = _load()
+        parser = _parse_ini(_generate_ini(config))
+        for model in config.models:
+            for profile in model.profiles:
+                if "parallel" in profile.extra:
+                    with self.subTest(profile=profile.name):
+                        self.assertEqual(parser.getint(profile.name, "parallel"), profile.extra["parallel"])
+
     def test_prompt_cache_enabled(self):
         """Prompt processing is slow on the O6; the RAM prompt cache must stay on."""
         config = _load()

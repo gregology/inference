@@ -120,7 +120,7 @@ Measured with llama.cpp 620d2225c and Mali driver r53p0 (tokens/s; prompt measur
 | `qwen3.8-flash-next-uncensored:125b` | CPU | ~7–8 | ~5.0 |
 | `glm-5.3-flash-uncensored:320b` | CPU | ~2 | ~1.0 |
 
-Prompt processing dominates: a 4K-token prompt takes ~19 minutes on the 27B models. The router's prompt cache (`cache_ram`) makes follow-up turns cheap: only new tokens are processed. Concurrent requests don't add much total throughput (CPU and GPU both top out at ~40 GB/s of memory bandwidth and are compute-bound), so each extra request roughly divides the speed; the router runs one at a time (`--parallel 1`).
+Prompt processing dominates: a 4K-token prompt takes ~19 minutes on the 27B models. The router's prompt cache (`cache_ram`) makes follow-up turns cheap: only new tokens are processed. Concurrent requests don't add much total throughput (CPU and GPU both top out at ~40 GB/s of memory bandwidth and are compute-bound), so each extra request roughly divides the speed. Models serve one request at a time (`parallel = 1` in `[defaults]`) and queue the rest; Flash-Next has two slots (`extra = { parallel = 2 }`), so two requests each get ~2.9 tok/s.
 
 What made the difference:
 

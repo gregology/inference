@@ -20,6 +20,9 @@ Environment=GGML_VK_FORCE_MMVQ=1
 """
 
 
+# Only router-level flags go on the command line: the router overlays its
+# own flags on every model's preset, so a flag here (e.g. --parallel) would
+# override the per-model values in models.ini.
 def render_unit(host: str, port: int, mali: bool = False) -> str:
     gpu_env = MALI_ENV if mali else ""
     return f"""\
@@ -40,7 +43,6 @@ ExecStart={SERVER_BIN} \\
   --host {host} --port {port} \\
   --models-preset {MODELS_INI} \\
   --models-max 1 \\
-  --parallel 1 \\
   --timeout 1800
 
 Restart=on-failure
