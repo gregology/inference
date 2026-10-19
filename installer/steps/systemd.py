@@ -39,11 +39,14 @@ WorkingDirectory=/srv/llm
 Environment=HOME=/srv/llm
 Environment=HF_HOME=/srv/llm/cache/huggingface
 {gpu_env}
+# --timeout is also the router's read timeout on a child server during
+# prompt processing (2.7-11 tok/s on this box), so first-token waits of
+# hours are legitimate: allow up to 8 h.
 ExecStart={SERVER_BIN} \\
   --host {host} --port {port} \\
   --models-preset {MODELS_INI} \\
   --models-max {models_max} \\
-  --timeout 1800
+  --timeout 28800
 
 Restart=on-failure
 RestartSec=2
