@@ -41,7 +41,7 @@ class TestRouterConfig(unittest.TestCase):
         config = _load()
         ini_content = _generate_ini(config)
         parser = _parse_ini(ini_content)
-        expected_profiles = sum(len(m.profiles) for m in config.models)
+        expected_profiles = sum(not p.resident for m in config.models for p in m.profiles)
         non_default = [s for s in parser.sections() if s != "DEFAULT"]
         self.assertEqual(len(non_default), expected_profiles + 1)  # +1 for [*]
 
@@ -85,8 +85,20 @@ class TestRouterConfig(unittest.TestCase):
         parser = _parse_ini(_generate_ini(config))
         for model in config.models:
             for profile in model.profiles:
+                if profile.resident:
+                    continue
                 with self.subTest(profile=profile.name):
                     self.assertEqual(parser.get(profile.name, "alias"), profile.name)
+
+    def test_resident_profiles_not_routed(self):
+        """A resident profile runs in its own server; the router must not load a second copy."""
+        config = _load()
+        parser = _parse_ini(_generate_ini(config))
+        for model in config.models:
+            for profile in model.profiles:
+                if profile.resident:
+                    with self.subTest(profile=profile.name):
+                        self.assertFalse(parser.has_section(profile.name))
 
     def test_profile_parallel_overrides_default(self):
         """A per-profile parallel lands in that profile's section, after the [*] default."""

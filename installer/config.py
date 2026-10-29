@@ -23,6 +23,13 @@ class Profile:
     gpu_layers: str | int = "auto"
     device: str | None = None
     extra: dict = field(default_factory=dict)
+    # A profile with a port runs in its own always-on llama-server on that
+    # port instead of the router, so the router never unloads it.
+    port: int | None = None
+
+    @property
+    def resident(self) -> bool:
+        return self.port is not None
 
 
 @dataclass
@@ -124,6 +131,7 @@ def load_config(args) -> Config:
                 gpu_layers=profile_raw.get("gpu_layers", defaults.gpu_layers),
                 device=profile_raw.get("device"),
                 extra=profile_raw.get("extra", {}),
+                port=profile_raw.get("port"),
             ))
         models.append(Model(
             id=model_id,
