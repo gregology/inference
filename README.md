@@ -104,13 +104,13 @@ The `[defaults]` and the profile's keys become llama-server flags (`true` is a b
 
 ### Services
 
-`[services.<name>]` blocks install Python network services, each in its own venv under `/srv/llm/services/<name>`, run as the `llm` user by `inference-<name>.service`. They provide the voice assistant's speech-to-text and text-to-speech (Wyoming, for Home Assistant's Assist pipeline) and its web search (MCP):
+`[services.<name>]` blocks install Python network services, each in its own venv under `/srv/llm/services/<name>`, run as the `llm` user by `inference-<name>.service`. They provide the voice assistant's speech-to-text and text-to-speech (Wyoming, for Home Assistant's Assist pipeline) and its web search and weather (MCP):
 
 | Service | Port | What | Home Assistant integration |
 |---|---|---|---|
 | `stt` | 10300 | Qwen3-ASR 0.6B via wyoming-faster-whisper | Wyoming Protocol |
 | `tts` | 10200 | Piper, `en_US-lessac-medium` | Wyoming Protocol |
-| `search` | 10500 | DeepSeek Search/Fetch as MCP tools | Model Context Protocol, SSE URL `http://<host>:10500/sse` |
+| `search` | 10500 | DeepSeek Search/Fetch and Open-Meteo weather as MCP tools | Model Context Protocol, SSE URL `http://<host>:10500/sse` |
 
 Keys: `package` (pinned pip spec), `module` or `script` (a file in this repo, copied next to the venv), `port`, `args` (may use `{port}`, `{data}` and `{download}`), optional `env_file` and `download` (a Hugging Face repo fetched into the data dir). The search service needs `/srv/llm/etc/deepseek.env` with `DEEPSEEK_API_KEY=…` (owner `llm`, mode 0600) and only accepts Home Assistant and loopback, since DeepSeek bills per request.
 
@@ -260,7 +260,7 @@ install.sh            Shell bootstrap (ensures git + python3, clones repo)
             ├── resident.py        llama-<name>.service per resident profile
             └── services.py        inference-<name>.service per [services] entry
 services/
-  └── deepseek_search_mcp.py       MCP server for the search service
+  └── deepseek_search_mcp.py       MCP server for the search service (web search, weather)
 ```
 
 Zero Python dependencies beyond the standard library. The HF CLI gets its own venv under `/srv/llm/venv`, and each service its own under `/srv/llm/services/<name>`.

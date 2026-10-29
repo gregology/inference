@@ -137,6 +137,38 @@ class TestSearchFormatting(unittest.TestCase):
         self.assertEqual(mod.format_results({"error": "DeepSeek search returned HTTP 429"}),
                          "DeepSeek search returned HTTP 429")
 
+    def test_pick_place(self):
+        mod = self._mod()
+        results = [
+            {"name": "Paris", "admin1": "Île-de-France Region", "country": "France", "country_code": "FR"},
+            {"name": "Paris", "admin1": "Texas", "country": "United States", "country_code": "US"},
+        ]
+        self.assertEqual(mod.pick_place(results, "")["country_code"], "FR")
+        self.assertEqual(mod.pick_place(results, "Texas")["admin1"], "Texas")
+        self.assertEqual(mod.pick_place(results, "US")["admin1"], "Texas")
+        self.assertIsNone(mod.pick_place(results, "Ontario"))
+        self.assertIsNone(mod.pick_place([], ""))
+
+    def test_weather_compact(self):
+        mod = self._mod()
+        place = {"name": "Paris", "admin1": "Île-de-France Region", "country": "France"}
+        data = {
+            "current": {"time": "2026-10-29T18:15", "temperature_2m": 13.4, "apparent_temperature": 11.2,
+                        "weather_code": 0, "wind_speed_10m": 8.0},
+            "daily": {"time": ["2026-10-29", "2026-10-30", "2026-10-31"], "weather_code": [45, 61, 3],
+                      "temperature_2m_min": [5.6, 6.2, 4.0], "temperature_2m_max": [15.6, 15.4, 12.0],
+                      "precipitation_probability_max": [0, 80, 10], "precipitation_sum": [0.0, 3.1, 0.0]},
+        }
+        self.assertEqual(mod.format_weather(place, data, 3), "\n".join([
+            "Paris, Île-de-France Region, France, local time 18:15.",
+            "Now: clear, 13 °C (feels like 11 °C), wind 8 km/h.",
+            "Today: fog, 6 to 16 °C.",
+            "Tomorrow: light rain, 6 to 15 °C, 80% chance of precipitation (3.1 mm).",
+            "Saturday: overcast, 4 to 12 °C, 10% chance of precipitation (0.0 mm).",
+        ]))
+        self.assertEqual(mod.format_weather(place, {"error": "Open-Meteo request failed: timeout"}, 1),
+                         "Open-Meteo request failed: timeout")
+
     def test_date_time_tool_name(self):
         """Home Assistant only drops its per-second time line for a tool named *GetDateTime."""
         mod = self._mod()
