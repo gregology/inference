@@ -147,6 +147,34 @@ device = "none"
 gpu_layers = 0
 extra = { threads = 8, threads_batch = 12, reasoning_budget = 1024 }
 
+# ── Voice assistant ─────────────────────────────────────────────
+#
+# Answers Home Assistant's Assist pipeline (the smart speaker) through HA's
+# llama.cpp conversation integration. The port makes it resident: it runs
+# in its own always-on llama-server (llama-voice-9b.service), so the
+# router's LRU never unloads it and its prompt cache keeps HA's system
+# prompt warm between questions.
+#
+# Measured with llama-bench on the 8 big cores (q4_0 KV, flash attention),
+# prompt / generation tok/s: Qwen3.5-4B 51 / 12.4, Gemma-4-E4B 37 / 10.7,
+# this 9B 30 / 7.1, Gemma4-12B 18.5 / 4.9. Asked five questions with a
+# web_search tool, the 9B answered or searched correctly 5/5 in 6-15 s; the
+# 4B scored 4/5 (it answered a current-events question from memory, wrongly)
+# and Gemma-4-E4B spoke its reasoning even with thinking off. Thinking is
+# off here: a spoken answer can't wait for it.
+[models.qwen3_5-9b-uncensored]
+repo = "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive"
+file = "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
+dir = "qwen-3.5-9b-uncensored"
+
+[models.qwen3_5-9b-uncensored.profiles.voice]
+name = "voice:9b"
+port = 8001
+ctx_size = 32768
+device = "none"
+gpu_layers = 0
+extra = { threads = 8, threads_batch = 12, jinja = true, reasoning_budget = 0 }
+
 # ── Large models (exceed 64GB, rely on mmap) ─────────────────────
 #
 # These run entirely on the CPU, with the weights in mmap'd, evictable
@@ -207,3 +235,47 @@ ctx_size = 1048576
 device = "none"
 gpu_layers = 0
 extra = { load_mode = "mmap", no_repack = true, threads = 8, threads_batch = 12, ctx_checkpoints = 8, reasoning_budget = 512 }
+
+# ── Services ────────────────────────────────────────────────────
+#
+# Python network services for the smart speaker, each in its own venv
+# under /srv/llm/services/<name> and run as the llm user. Args can use
+# {port}, {data} (the service's data dir) and {download} (where the
+# `download` repo was fetched).
+
+# Speech-to-text for Home Assistant (Wyoming, add as a Wyoming integration).
+# Tested through this server on the O6, pinned to 4 big cores, with three
+# clean clips ("What is the weather like tomorrow?", "Play Dolly Parton in
+# the studio.", a 4 s question): Qwen3-ASR 0.6B was right on all three in
+# 0.55-1.0 s after the audio ended. Parakeet TDT 0.6B (sherpa) took 0.13 s
+# but heard "Deli Parton", as did Whisper small.en (2.3 s); Whisper
+# base.en was right in 0.75 s, medium.en in 6.5 s. Qwen3-ASR also takes a
+# biasing prompt (entity names), which Parakeet can't.
+[services.stt]
+package = "wyoming-faster-whisper[qwen3-asr]==3.8.1"
+module = "wyoming_faster_whisper"
+port = 10300
+download = "rhasspy/qwen3-asr-0.6b-onnx-int4"
+args = ["--uri", "tcp://0.0.0.0:{port}", "--stt-library", "qwen3-asr", "--model", "{download}",
+        "--data-dir", "{data}", "--language", "en", "--cpu-threads", "4"]
+
+# Text-to-speech for Home Assistant (Wyoming). Piper synthesizes ~14x
+# faster than real time on the O6 (1.9 s of speech in 0.16 s). The voice
+# downloads into the data dir on first start.
+[services.tts]
+package = "wyoming-piper==2.5.2"
+module = "wyoming_piper"
+port = 10200
+args = ["--uri", "tcp://0.0.0.0:{port}", "--voice", "en_US-lessac-medium", "--data-dir", "{data}"]
+
+# DeepSeek web search as MCP tools (web_search, fetch_page) for Home
+# Assistant's LLM agents (add as an MCP integration, SSE URL
+# http://<host>:10500/sse). DeepSeek bills per successful request, so only
+# Home Assistant (10.0.0.99) and loopback may connect. The env file holds
+# DEEPSEEK_API_KEY (owner llm, mode 0600).
+[services.search]
+package = "mcp==2.3.0"
+script = "services/deepseek_search_mcp.py"
+port = 10500
+env_file = "/srv/llm/etc/deepseek.env"
+args = ["--host", "0.0.0.0", "--port", "{port}", "--allow", "10.0.0.99", "--allow", "127.0.0.1"]

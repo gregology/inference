@@ -43,7 +43,56 @@ context:
       Use self.sh() for commands that must succeed, self.sh_ok() for probes,
       self.sh_live() for long-running commands that should stream output.
 
+  - match: ["models.toml", "installer/steps/services.py", "services/*.py"]
+    on: [edit, create]
+    when: before
+    content: |
+      [services.<name>] entries pin their pip package exactly (pkg==x.y.z):
+      the services step's check() compares the installed spec, and an
+      unpinned one would drift under re-runs. Each service binds 0.0.0.0 on
+      its own port; load_config rejects collisions with the router and
+      resident profiles. A service that spends money or holds a key must
+      restrict its clients itself (the search service's --allow), since
+      nothing on this box has auth. Keep tool output short: the voice model
+      reads prompts at ~30 tok/s, so every result costs seconds of silence.
+
 decisions:
+  - decision: "The voice model is resident, outside the router"
+    rationale: |
+      The router keeps models_max = 2 models and evicts the least recently
+      used, and agent sessions switch between the 27B profiles and
+      Flash-Next often. A voice request that hit an evicted model would wait
+      for a cold load plus a full re-process of Home Assistant's system
+      prompt (minutes on this box). A resident profile runs in its own
+      llama-server, never unloads, and keeps its prompt cache. It costs its
+      RAM (~6 GB for the 9B) and competes for cores and bandwidth while both
+      it and a router CPU model are busy.
+    match: ["models.toml", "installer/steps/resident.py"]
+
+  - decision: "Qwen3.5-9B for voice, over 4B and Gemma 4"
+    rationale: |
+      On the 8 big cores (llama-bench, q4_0 KV): Qwen3.5-4B 51/12.4,
+      Gemma-4-E4B 37/10.7, Qwen3.5-9B 30/7.1, Gemma4-12B 18.5/4.9 tok/s
+      prompt/generation. With a web_search tool, the 9B routed 5/5 test
+      questions correctly in 6-15 s; the 4B answered "who won the most
+      recent Stanley Cup" from memory with an invented result, and
+      Gemma-4-E4B spoke its reasoning despite --reasoning-budget 0. 12B is
+      too slow to talk to.
+    revisit_when: "answers feel too slow (try Qwen3.5-4B) or a better small model appears"
+    match: ["models.toml"]
+
+  - decision: "Qwen3-ASR for speech-to-text, on the CPU"
+    rationale: |
+      Through wyoming-faster-whisper on 4 big cores, with clean clips:
+      Qwen3-ASR 0.6B int4 transcribed all three correctly in 0.55-1.0 s,
+      including "Play Dolly Parton in the studio." Parakeet TDT 0.6B was
+      fastest (0.13 s) but heard "Deli Parton", as did Whisper small.en
+      (2.3 s) and distil-small.en; Whisper medium.en was right but took
+      6.5 s. Qwen3-ASR also accepts a biasing prompt (HA entity names),
+      Parakeet doesn't. The NPU's Whisper Medium build was not needed.
+    revisit_when: "real microphone audio (noise, far-field) transcribes poorly"
+    match: ["models.toml"]
+
   - decision: "Zero external Python dependencies for the installer"
     rationale: |
       The installer runs via curl-pipe-bash on a fresh Debian system. Adding

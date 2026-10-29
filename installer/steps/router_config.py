@@ -41,6 +41,9 @@ def render_ini(config) -> str:
 
     for model in config.models:
         for profile in model.profiles:
+            # Resident profiles get their own llama-server (resident step).
+            if profile.resident:
+                continue
             lines.append("")
             lines.append(f"[{profile.name}]")
             lines.append(f"model = {model.first_gguf}")
@@ -92,6 +95,6 @@ class RouterConfigStep(Step):
         MODELS_INI.write_text(content)
         self.sh(f"chown llm:llm {MODELS_INI}")
         self.sh(f"chmod 0644 {MODELS_INI}")
-        print(f"   Wrote {MODELS_INI} ({len(self.config.models)} models, "
-              f"{sum(len(m.profiles) for m in self.config.models)} profiles)")
+        routed = [p for m in self.config.models for p in m.profiles if not p.resident]
+        print(f"   Wrote {MODELS_INI} ({len(routed)} router profiles)")
         self.sh("systemctl try-restart llama-router.service")
