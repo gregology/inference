@@ -23,6 +23,10 @@ def _service(**kwargs):
 
 class TestServicesConfig(unittest.TestCase):
 
+    def test_services_load(self):
+        config = _load()
+        self.assertEqual({s.name for s in config.services}, {"stt", "tts", "search"})
+
     def test_packages_are_pinned(self):
         """An unpinned package would change under a re-run; the check() marker relies on the spec."""
         for service in _load().services:

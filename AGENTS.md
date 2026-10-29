@@ -79,4 +79,18 @@ installer/
     models.py               download / prune models
     router_config.py        generate models.ini
     systemd.py              llama-router.service
+    resident.py             llama-<name>.service per resident profile
+    services.py             inference-<name>.service per [services] entry
+services/
+  deepseek_search_mcp.py    MCP server (SSE) for DeepSeek web search
 ```
+
+## Voice assistant
+
+The smart speaker's local AI runs here, wired into Home Assistant's Assist pipeline (HA at `10.0.0.99`):
+
+- **Conversation:** `voice:9b` (Qwen3.5-9B Uncensored) is a *resident* profile (`port = 8001`): its own always-on llama-server, outside the router, so it is never evicted and its prompt cache survives between questions. HA reaches it through the llama.cpp integration at `http://<host>:8001/v1`.
+- **Speech:** `[services.stt]` (Qwen3-ASR, Wyoming `:10300`) and `[services.tts]` (Piper, Wyoming `:10200`).
+- **Web search:** `[services.search]` (DeepSeek Search/Fetch as MCP tools, SSE `:10500/sse`). It reads `DEEPSEEK_API_KEY` from `/srv/llm/etc/deepseek.env` and only accepts HA and loopback.
+
+Resident units carry a `# Managed by the inference installer` marker; the resident and services steps remove marked units whose entries left `models.toml`. Re-running the `router-config` step restarts the router (and unloads its models), so deploy voice changes with `--only models`, `--only resident` and `--only services`.

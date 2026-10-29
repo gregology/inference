@@ -38,7 +38,8 @@ curl -fsSL ... | sudo bash -s -- --prune
 --dry-run       Show what would be done without making changes
 --only STEP     Run a single step (packages, user, gpu-permissions,
                 vulkan-headers, spirv-headers, shaderc, build-llama,
-                huggingface, models, router-config, systemd)
+                huggingface, models, router-config, systemd,
+                resident, services)
 --host HOST     Listen address (default: 0.0.0.0)
 --port PORT     Listen port (default: 8000)
 --models-toml   Path to models.toml (default: repo's models.toml)
@@ -84,6 +85,34 @@ device = "none"
 gpu_layers = 0
 extra = { load_mode = "mmap", no_repack = true, threads = 8, ctx_checkpoints = 8, reasoning_budget = 2048, parallel = 2 }
 ```
+
+### Resident profiles
+
+A profile with a `port` runs in its own always-on llama-server (`llama-<name>.service`) instead of the router, so the router's least-recently-used eviction never unloads it and its prompt cache stays warm. Use it for interactive clients that can't wait for a cold load, like the voice assistant:
+
+```toml
+[models.qwen3_5-9b-uncensored.profiles.voice]
+name = "voice:9b"
+port = 8001
+ctx_size = 32768
+device = "none"
+gpu_layers = 0
+extra = { threads = 8, threads_batch = 12, jinja = true, reasoning_budget = 0 }
+```
+
+The `[defaults]` and the profile's keys become llama-server flags (`true` is a bare flag, `false` is left off). A resident model holds its RAM and competes with the router's CPU models for cores and memory bandwidth whenever both are busy.
+
+### Services
+
+`[services.<name>]` blocks install Python network services, each in its own venv under `/srv/llm/services/<name>`, run as the `llm` user by `inference-<name>.service`. They provide the voice assistant's speech-to-text and text-to-speech (Wyoming, for Home Assistant's Assist pipeline) and its web search (MCP):
+
+| Service | Port | What | Home Assistant integration |
+|---|---|---|---|
+| `stt` | 10300 | Qwen3-ASR 0.6B via wyoming-faster-whisper | Wyoming Protocol |
+| `tts` | 10200 | Piper, `en_US-lessac-medium` | Wyoming Protocol |
+| `search` | 10500 | DeepSeek Search/Fetch as MCP tools | Model Context Protocol, SSE URL `http://<host>:10500/sse` |
+
+Keys: `package` (pinned pip spec), `module` or `script` (a file in this repo, copied next to the venv), `port`, `args` (may use `{port}`, `{data}` and `{download}`), optional `env_file` and `download` (a Hugging Face repo fetched into the data dir). The search service needs `/srv/llm/etc/deepseek.env` with `DEEPSEEK_API_KEY=…` (owner `llm`, mode 0600) and only accepts Home Assistant and loopback, since DeepSeek bills per request.
 
 ### Gated repos
 
@@ -227,10 +256,14 @@ install.sh            Shell bootstrap (ensures git + python3, clones repo)
             ├── huggingface.py     HF CLI venv
             ├── models.py          download / prune models
             ├── router_config.py   generate models.ini
-            └── systemd.py         llama-router.service
+            ├── systemd.py         llama-router.service
+            ├── resident.py        llama-<name>.service per resident profile
+            └── services.py        inference-<name>.service per [services] entry
+services/
+  └── deepseek_search_mcp.py       MCP server for the search service
 ```
 
-Zero Python dependencies beyond the standard library. The HF CLI gets its own venv under `/srv/llm/venv`.
+Zero Python dependencies beyond the standard library. The HF CLI gets its own venv under `/srv/llm/venv`, and each service its own under `/srv/llm/services/<name>`.
 
 ## Hardware
 
