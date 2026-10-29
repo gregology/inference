@@ -137,6 +137,13 @@ class TestSearchFormatting(unittest.TestCase):
         self.assertEqual(mod.format_results({"error": "DeepSeek search returned HTTP 429"}),
                          "DeepSeek search returned HTTP 429")
 
+    def test_date_time_tool_name(self):
+        """Home Assistant only drops its per-second time line for a tool named *GetDateTime."""
+        mod = self._mod()
+        import anyio
+        names = [t.name for t in anyio.run(mod.server.list_tools)]
+        self.assertTrue(any(n.endswith("GetDateTime") for n in names))
+
 
 if __name__ == "__main__":
     unittest.main()

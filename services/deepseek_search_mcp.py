@@ -4,6 +4,8 @@ Home Assistant's MCP integration speaks SSE, so this serves the SSE transport.
 DeepSeek bills per successful request, so only the --allow'ed client
 addresses (Home Assistant, loopback) may connect.
 
+Also serves GetDateTime, which keeps Home Assistant's prompt cacheable.
+
 Reads DEEPSEEK_API_KEY from the environment.
 """
 
@@ -15,6 +17,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime
 
 import anyio
 import uvicorn
@@ -107,6 +110,16 @@ async def fetch_page(url: str, max_chars: int = 2000) -> str:
     if len(content) > limit:
         content = content[:limit] + "\n[truncated]"
     return f"# {data.get('title', '').strip()}\n\n{content}"
+
+
+# Home Assistant puts the time, to the second, at the end of the system prompt
+# unless an agent has a tool named *GetDateTime. Qwen3.5's recurrent layers
+# can't resume a cached prompt from that point, so the whole system prompt
+# was re-processed every question (~550 tokens, ~17 s).
+@server.tool(name="GetDateTime")
+async def get_date_time() -> str:
+    """Get the current date, time and day of the week."""
+    return datetime.now().astimezone().strftime("%A %Y-%m-%d %H:%M %Z")
 
 
 def allow_only(app, networks):
