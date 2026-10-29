@@ -69,6 +69,34 @@ class Model:
 
 
 @dataclass
+class Service:
+    """A Python network service run from its own venv (e.g. Wyoming STT/TTS)."""
+    name: str
+    package: str
+    port: int
+    module: str | None = None
+    script: str | None = None
+    args: list[str] = field(default_factory=list)
+    env_file: str | None = None
+    # Hugging Face repo downloaded into the data dir before the service starts.
+    download: str | None = None
+
+    @property
+    def root(self) -> str:
+        return f"/srv/llm/services/{self.name}"
+
+    @property
+    def data_dir(self) -> str:
+        return f"{self.root}/data"
+
+    @property
+    def download_dir(self) -> str | None:
+        if not self.download:
+            return None
+        return f"{self.data_dir}/{self.download.split('/')[-1]}"
+
+
+@dataclass
 class Defaults:
     load_mode: str = "auto"
     parallel: int = 1
@@ -86,6 +114,7 @@ class Config:
     models_toml: Path
     models: list[Model]
     defaults: Defaults
+    services: list[Service] = field(default_factory=list)
     llama_cpp_ref: str = "latest"
     models_max: int = 1
     prune: bool = False
@@ -143,6 +172,31 @@ def load_config(args) -> Config:
             profiles=profiles,
         ))
 
+    services = []
+    for name, service_raw in raw.get("services", {}).items():
+        if bool(service_raw.get("module")) == bool(service_raw.get("script")):
+            print(f"ERROR: service {name}: set exactly one of 'module' or 'script'", file=sys.stderr)
+            sys.exit(1)
+        services.append(Service(
+            name=name,
+            package=service_raw["package"],
+            port=service_raw["port"],
+            module=service_raw.get("module"),
+            script=service_raw.get("script"),
+            args=service_raw.get("args", []),
+            env_file=service_raw.get("env_file"),
+            download=service_raw.get("download"),
+        ))
+
+    # The router, resident profiles and services all bind 0.0.0.0.
+    ports = [args.port]
+    ports += [p.port for m in models for p in m.profiles if p.resident]
+    ports += [s.port for s in services]
+    if len(ports) != len(set(ports)):
+        print(f"ERROR: port collision between router, resident profiles and services: {ports}",
+              file=sys.stderr)
+        sys.exit(1)
+
     build_raw = raw.get("build", {})
     llama_cpp_ref = build_raw.get("llama_cpp_ref", "latest")
     models_max = raw.get("router", {}).get("models_max", 1)
@@ -151,6 +205,7 @@ def load_config(args) -> Config:
         models_toml=toml_path,
         models=models,
         defaults=defaults,
+        services=services,
         llama_cpp_ref=llama_cpp_ref,
         models_max=models_max,
         prune=args.prune,

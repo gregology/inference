@@ -12,6 +12,7 @@ from .models import ModelsStep
 from .router_config import RouterConfigStep
 from .systemd import SystemdStep
 from .resident import ResidentStep
+from .services import ServicesStep
 
 ALL_STEPS: list = [
     PackagesStep,
@@ -26,4 +27,5 @@ ALL_STEPS: list = [
     RouterConfigStep,
     SystemdStep,
     ResidentStep,
+    ServicesStep,
 ]
