@@ -102,5 +102,37 @@ class TestServiceUnits(unittest.TestCase):
         self.assertNotIn("EnvironmentFile", render_unit(_service(module="m")))
 
 
+class TestSearchFormatting(unittest.TestCase):
+
+    def _mod(self):
+        import importlib.util
+        try:
+            import mcp  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("mcp not installed")
+        spec = importlib.util.spec_from_file_location(
+            "deepseek_search_mcp", Path(__file__).resolve().parent.parent / "services/deepseek_search_mcp.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_hex_site_names_decoded(self):
+        mod = self._mod()
+        self.assertEqual(mod._site_name("6e686c652e636f6d"), "nhle.com")
+        self.assertEqual(mod._site_name("USA Today"), "USA Today")
+
+    def test_results_compact(self):
+        mod = self._mod()
+        text = mod.format_results({"results": [
+            {"title": "T", "url": "https://x", "date": "2026-06-14T16:00:00+00:00",
+             "site_name": "nhl.com", "summary": "word " * 200},
+        ]})
+        self.assertIn("1. T (2026-06-14, nhl.com)", text)
+        self.assertLess(len(text), mod.SUMMARY_CHARS + 100)
+        self.assertEqual(mod.format_results({"results": []}), "No results.")
+        self.assertEqual(mod.format_results({"error": "DeepSeek search returned HTTP 429"}),
+                         "DeepSeek search returned HTTP 429")
+
+
 if __name__ == "__main__":
     unittest.main()
